@@ -76,7 +76,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var scanFolder by mutableStateOf(store.loadScanFolder())
         private set
 
-    fun setScanFolder(f: String?) {
+    fun chooseScanFolder(f: String?) {
         scanFolder = f
         store.saveScanFolder(f)
     }

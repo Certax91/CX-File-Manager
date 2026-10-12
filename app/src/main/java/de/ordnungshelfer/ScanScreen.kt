@@ -49,7 +49,7 @@ fun ScanScreen(vm: MainViewModel) {
     var tagText by remember { mutableStateOf("") }
     var lastSaved by remember { mutableStateOf<Uri?>(null) }
     var editing by remember { mutableStateOf<DupEntry?>(null) }
-    val chooseFolder = rememberFolderChooser(vm, "Scan speichern in") { vm.setScanFolder(it) }
+    val chooseFolder = rememberFolderChooser(vm, "Scan speichern in") { vm.chooseScanFolder(it) }
 
     val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         if (r.resultCode == Activity.RESULT_OK) {
@@ -152,8 +152,8 @@ fun ScanScreen(vm: MainViewModel) {
                 FolderSelector(
                     vm = vm,
                     selected = vm.scanFolder,
-                    onSelect = { vm.setScanFolder(it) },
-                    onClear = { vm.setScanFolder(null) },
+                    onSelect = { vm.chooseScanFolder(it) },
+                    onClear = { vm.chooseScanFolder(null) },
                     onChoose = chooseFolder,
                 )
             }
