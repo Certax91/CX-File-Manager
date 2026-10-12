@@ -61,12 +61,15 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
 
     // decorFitsSystemWindows = false: die App bekommt die Maße von Status- und Navigationsleiste
     // und kann die Bedienleiste sauber darüber platzieren (wichtig bei Android 15 „Edge-to-Edge“).
+    // Höhe der Android-Navigationsleiste aus dem Hauptfenster übernehmen: Im Vollbild-Dialog liefert
+    // Android diese Werte nicht zuverlässig, deshalb wird der Abstand hier ausdrücklich gesetzt.
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(bottom = maxOf(navBottom, 16.dp))) {
                 TopAppBar(
                     title = { Text(node.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.ArrowBack, "Zurück") } },
