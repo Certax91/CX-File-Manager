@@ -82,7 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Gescanntes PDF unter eigenem Namen im Wunschordner speichern. */
-    fun saveScan(pdf: Uri, wanted: String, dest: String?, newTags: List<String>, onDone: (Uri?) -> Unit) {
+    fun saveScan(pdf: Uri, wanted: String, dest: String?, newTags: List<String>, text: String?, onDone: (Uri?) -> Unit) {
         var name = wanted.trim().replace('/', '_').trimStart('.')
         if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return }
         if (!name.endsWith(".pdf", ignoreCase = true)) name += ".pdf"
@@ -96,6 +96,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     message = "Speichern nicht möglich"
                 } else {
                     if (newTags.isNotEmpty()) remapTags(emptyMap(), mapOf(saved.toString() to newTags))
+                    if (!text.isNullOrBlank()) {
+                        content = content + (saved.toString() to text.take(50_000))
+                        store.saveContent(content)
+                    }
                     message = "Gespeichert: ${Docs.displayName(ctx, saved) ?: name}"
                 }
                 onDone(saved)
@@ -187,6 +191,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onDone(ok)
             }
         }
+    }
+
+    var autoSort by mutableStateOf(store.loadAutoSort())
+        private set
+
+    fun setAutoSortNew(on: Boolean) {
+        autoSort = on
+        store.saveAutoSort(on)
     }
 
     /** Überwachung des Download-Ordners ein-/ausschalten. */

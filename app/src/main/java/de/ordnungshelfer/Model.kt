@@ -3,9 +3,12 @@ package de.ordnungshelfer
 import android.net.Uri
 
 /** Worauf eine eigene Regel prüft. */
-enum class RuleField(val label: String) {
-    NAME_CONTAINS("Name enthält"),
-    EXTENSION("Endung ist"),
+enum class RuleField(val label: String, val hint: String, val numeric: Boolean = false) {
+    NAME_CONTAINS("Name enthält", "Text im Dateinamen"),
+    EXTENSION("Endung ist", "Endung, z. B. pdf"),
+    PATH_CONTAINS("Pfad enthält", "z. B. WhatsApp oder Telegram"),
+    OLDER_THAN("Älter als", "Anzahl Tage, z. B. 90", numeric = true),
+    LARGER_THAN("Größer als", "Größe in MB, z. B. 100", numeric = true),
 }
 
 /** Eigene Regel, z. B. Name enthält „Rechnung“ → Ordner „Rechnungen“. Regeln haben Vorrang vor dem Dateityp. */
@@ -19,14 +22,33 @@ data class Rule(
     /** Tags, die Dateien beim Sortieren durch diese Regel automatisch bekommen. */
     val tags: List<String> = emptyList(),
 ) {
-    fun matches(fileName: String): Boolean {
+    fun matches(fileName: String): Boolean = matches(Node(Uri.EMPTY, fileName, "", 0L, 0L))
+
+    fun matches(node: Node): Boolean {
         val p = pattern.trim()
         if (p.isEmpty()) return false
         return when (field) {
-            RuleField.NAME_CONTAINS -> fileName.contains(p, ignoreCase = true)
-            RuleField.EXTENSION -> extensionOf(fileName).equals(p.removePrefix("."), ignoreCase = true)
+            RuleField.NAME_CONTAINS -> node.name.contains(p, ignoreCase = true)
+            RuleField.EXTENSION -> extensionOf(node.name).equals(p.removePrefix("."), ignoreCase = true)
+            RuleField.PATH_CONTAINS -> Uri.decode(node.uri.toString()).contains(p, ignoreCase = true)
+            RuleField.OLDER_THAN -> {
+                val days = p.toLongOrNull() ?: return false
+                node.modified > 0 && System.currentTimeMillis() - node.modified > days * 24 * 60 * 60 * 1000
+            }
+            RuleField.LARGER_THAN -> {
+                val mb = p.replace(',', '.').toDoubleOrNull() ?: return false
+                node.size > mb * 1024 * 1024
+            }
         }
     }
+
+    /** Lesbare Beschreibung, z. B. „Älter als 90 Tage“. */
+    val description: String
+        get() = when (field) {
+            RuleField.OLDER_THAN -> "Älter als $pattern Tage"
+            RuleField.LARGER_THAN -> "Größer als $pattern MB"
+            else -> "${field.label} „$pattern“"
+        }
 
     /** Zielordner, "/" erlaubt Unterordner, z. B. "Finanzen/Rechnungen". */
     val targetSegments: List<String>

@@ -54,6 +54,8 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     // Dokumentenscanner (Kantenerkennung, Zuschneiden, PDF) über Google Play-Dienste
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+    // Texterkennung (auf dem Gerät) für gescannte Dokumente
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")

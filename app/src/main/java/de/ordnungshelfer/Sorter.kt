@@ -79,7 +79,7 @@ object Sorter {
     }
 
     fun targetFor(ctx: Context, node: Node, rules: List<Rule>, s: Settings): Target? {
-        val rule = rules.firstOrNull { it.matches(node.name) && (it.targetSegments.isNotEmpty() || it.targetBase != null) }
+        val rule = rules.firstOrNull { it.matches(node) && (it.targetSegments.isNotEmpty() || it.targetBase != null) }
         val target = mutableListOf<String>()
         val reasons = mutableListOf<String>()
         var base: String? = s.targetBase
@@ -87,7 +87,7 @@ object Sorter {
             rule != null -> {
                 if (rule.targetBase != null) base = rule.targetBase
                 target += rule.targetSegments
-                reasons += "Regel: ${rule.field.label} „${rule.pattern}“"
+                reasons += "Regel: ${rule.description}"
             }
             s.byType -> {
                 target += Categories.of(node.name)

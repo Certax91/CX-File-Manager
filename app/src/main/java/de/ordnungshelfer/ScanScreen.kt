@@ -37,7 +37,9 @@ import java.util.Date
 import java.util.Locale
 
 /** Ergebnis eines Scans: das fertige PDF und die erste Seite als Vorschau. */
-private data class ScanResult(val pdf: Uri, val pages: Int, val firstPage: Uri?)
+private data class ScanResult(val pdf: Uri, val pages: Int, val pageImages: List<Uri>) {
+    val firstPage: Uri? get() = pageImages.firstOrNull()
+}
 
 /** Dokumente mit der Kamera als PDF scannen, benennen und im Wunschordner ablegen. */
 @Composable
@@ -48,6 +50,10 @@ fun ScanScreen(vm: MainViewModel) {
     var name by remember { mutableStateOf(TextFieldValue("")) }
     var tagText by remember { mutableStateOf("") }
     var lastSaved by remember { mutableStateOf<Uri?>(null) }
+    var nameTouched by remember { mutableStateOf(false) }
+    /** Erkannter Text und Vorschlag (null = läuft noch / nicht gestartet) */
+    var ocr by remember { mutableStateOf<Pair<String, DocNamer.Suggestion>?>(null) }
+    var ocrRunning by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<DupEntry?>(null) }
     val chooseFolder = rememberFolderChooser(vm, "Scan speichern in") { vm.chooseScanFolder(it) }
 
@@ -56,7 +62,9 @@ fun ScanScreen(vm: MainViewModel) {
             val scan = GmsDocumentScanningResult.fromActivityResultIntent(r.data)
             val pdf = scan?.pdf
             if (pdf != null) {
-                result = ScanResult(pdf.uri, pdf.pageCount, scan.pages?.firstOrNull()?.imageUri)
+                result = ScanResult(pdf.uri, pdf.pageCount, scan.pages?.map { it.imageUri }.orEmpty())
+                nameTouched = false
+                ocr = null
                 val def = "Scan_" + SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.GERMANY).format(Date())
                 name = TextFieldValue(def, TextRange(0, def.length))
                 tagText = ""
@@ -77,6 +85,18 @@ fun ScanScreen(vm: MainViewModel) {
 
     val defaultFolder = remember {
         Uri.fromFile(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Scans")).toString()
+    }
+
+    LaunchedEffect(result) {
+        val r = result ?: return@LaunchedEffect
+        ocrRunning = true
+        val text = withContext(Dispatchers.IO) { runCatching { Ocr.recognize(ctx, r.pageImages) }.getOrDefault("") }
+        val sug = DocNamer.suggest(text)
+        ocr = text to sug
+        ocrRunning = false
+        // Vorschlag übernehmen, solange der Name noch nicht selbst geändert wurde
+        if (!nameTouched && text.isNotBlank()) name = TextFieldValue(sug.name, TextRange(0, sug.name.length))
+        if (tagText.isBlank() && sug.tags.isNotEmpty()) tagText = sug.tags.joinToString(", ")
     }
 
     LazyColumn(
@@ -134,9 +154,37 @@ fun ScanScreen(vm: MainViewModel) {
             }
             item { ScanPreview(r.firstPage) }
             item {
+                val o = ocr
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        when {
+                            o == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Text wird erkannt …")
+                            }
+                            o.first.isBlank() -> Text("Kein Text erkannt.")
+                            else -> {
+                                Text("Text erkannt (${o.first.split(Regex("\\s+")).size} Wörter) – die Suche findet das Dokument auch über seinen Inhalt.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                Spacer(Modifier.height(6.dp))
+                                SuggestionChip(
+                                    onClick = {
+                                        name = TextFieldValue(o.second.name, TextRange(0, o.second.name.length))
+                                        nameTouched = true
+                                    },
+                                    label = { Text("Vorschlag: ${o.second.name}") },
+                                    icon = { Icon(Icons.Filled.AutoAwesome, null, Modifier.size(16.dp)) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            item {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it; nameTouched = true },
                     label = { Text("Dateiname") },
                     suffix = { Text(".pdf") },
                     singleLine = true,
@@ -178,7 +226,7 @@ fun ScanScreen(vm: MainViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            vm.saveScan(r.pdf, name.text, vm.scanFolder ?: defaultFolder, parseTags(tagText)) { saved ->
+                            vm.saveScan(r.pdf, name.text, vm.scanFolder ?: defaultFolder, parseTags(tagText), ocr?.first) { saved ->
                                 if (saved != null) {
                                     lastSaved = saved
                                     result = null

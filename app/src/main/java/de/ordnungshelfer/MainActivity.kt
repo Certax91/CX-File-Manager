@@ -38,6 +38,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Date
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -156,12 +158,19 @@ fun SettingsScreen(vm: MainViewModel) {
 fun ToolsScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     var sub by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = sub) {
+        ScrollableTabRow(selectedTabIndex = sub, edgePadding = 8.dp) {
             Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Sortieren") }, icon = { Icon(Icons.Filled.CleaningServices, null) })
             Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Duplikate") }, icon = { Icon(Icons.Filled.ContentCopy, null) })
+            Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Speicher") }, icon = { Icon(Icons.Filled.PieChart, null) })
+            Tab(selected = sub == 3, onClick = { sub = 3 }, text = { Text("Papierkorb (${vm.trash.size})") }, icon = { Icon(Icons.Filled.Delete, null) })
         }
         Box(Modifier.weight(1f)) {
-            if (sub == 0) SortScreen(vm, onGoToFolders = onGoToSettings) else DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
+            when (sub) {
+                0 -> SortScreen(vm, onGoToFolders = onGoToSettings)
+                1 -> DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
+                2 -> StorageScreen(vm, onGoToSettings = onGoToSettings)
+                else -> TrashScreen(vm, onBack = null)
+            }
         }
     }
 }
@@ -347,6 +356,13 @@ fun FoldersScreen(vm: MainViewModel) {
                     vm.setWatch(on)
                 }
             }
+            if (vm.watching) {
+                SwitchRow(
+                    "Automatisch nach Regeln einsortieren",
+                    "Passt eine Regel zu einer neuen Datei, wird sie sofort verschoben. Sonst bietet die Benachrichtigung das passende Ziel als Knopf an.",
+                    vm.autoSort,
+                ) { vm.setAutoSortNew(it) }
+            }
         }
         item {
             Spacer(Modifier.height(8.dp))
@@ -470,6 +486,7 @@ fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Bool
 
 // ======================= Regeln =======================
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RulesScreen(vm: MainViewModel) {
     var field by rememberSaveable { mutableStateOf(RuleField.NAME_CONTAINS) }
@@ -509,7 +526,7 @@ fun RulesScreen(vm: MainViewModel) {
             if (editingId != null) Hint("Ändere die Felder und tippe auf „Änderungen speichern“.") else Hint("Beispiel: Name enthält „Rechnung“ → Ordner „Finanzen/Rechnungen“. Mit „/“ legst du Unterordner an. Über „Ablageort“ kann das Ziel auch ein ganz anderer Ordner sein.")
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RuleField.entries.forEach { f ->
                     FilterChip(selected = field == f, onClick = { field = f }, label = { Text(f.label) })
                 }
@@ -518,7 +535,8 @@ fun RulesScreen(vm: MainViewModel) {
         item {
             OutlinedTextField(
                 value = pattern, onValueChange = { pattern = it },
-                label = { Text(if (field == RuleField.EXTENSION) "Endung, z. B. pdf" else "Text im Dateinamen") },
+                label = { Text(field.hint) },
+                keyboardOptions = if (field.numeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -595,7 +613,7 @@ fun RulesScreen(vm: MainViewModel) {
             ) {
                 Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("${rule.field.label} „${rule.pattern}“")
+                        Text(rule.description)
                         val dest = listOfNotNull(rule.targetBase?.let { vm.folderLabel(it) }, rule.targetFolder.ifEmpty { null })
                         Text(
                             "→ ${dest.joinToString("/")}",
@@ -862,21 +880,21 @@ fun DuplicatesScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
 // ======================= Papierkorb =======================
 
 @Composable
-fun TrashScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun TrashScreen(vm: MainViewModel, onBack: (() -> Unit)?) {
     val ctx = LocalContext.current
     var confirmEmpty by remember { mutableStateOf(false) }
     val entries = vm.trash.sortedByDescending { it.deletedAt }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Zurück") }
-            Column(Modifier.weight(1f)) {
+            if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Zurück") }
+            Column(Modifier.weight(1f).padding(start = if (onBack == null) 8.dp else 0.dp)) {
                 Text("Papierkorb", style = MaterialTheme.typography.titleMedium)
                 Hint("${entries.size} Dateien · ${Formatter.formatShortFileSize(ctx, entries.sumOf { it.size })}")
             }
         }
         if (entries.isEmpty()) {
-            EmptyState(Icons.Filled.CheckCircle, "Papierkorb ist leer", "Hier landen Duplikate, die du aussortierst.")
+            EmptyState(Icons.Filled.CheckCircle, "Papierkorb ist leer", "Hier landen gelöschte Dateien und Ordner.")
             return@Column
         }
         Text(

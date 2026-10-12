@@ -142,6 +142,15 @@ class WatchService : Service() {
             if (last != null && System.currentTimeMillis() - last < 60_000) return@Runnable
             notified[key] = System.currentTimeMillis()
             known.add(f.name)
+            // Passende Regel? Bei „automatisch einsortieren“ direkt verschieben, sonst als Vorschlag anbieten
+            val suggestion = if (f.isFile) RuleApply.suggest(this, f) else null
+            if (suggestion != null && Store(this).loadAutoSort()) {
+                val moved = RuleApply.apply(this, f, suggestion.first, suggestion.second)
+                if (moved != null) {
+                    notifyDone(this, notificationId(key), "Einsortiert: ${f.name} → ${Docs.prettyPath(Uri.fromFile(moved.parentFile!!))}", 8000)
+                    return@Runnable
+                }
+            }
             notifyNew(this, f)
         }
         pending[key] = r
@@ -154,6 +163,7 @@ class WatchService : Service() {
         const val ID_SERVICE = 1
         const val KEY_NAME = "neuer_name"
         const val EXTRA_PATH = "pfad"
+        const val EXTRA_RULE = "regel"
 
         private val TEMP_SUFFIX = listOf(".crdownload", ".part", ".partial", ".tmp", ".download", ".opdownload")
 
@@ -222,19 +232,32 @@ class WatchService : Service() {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(f.name + "\n\nTippen für Name, Zielordner und Tags."))
                 .setContentIntent(details)
                 .addAction(renameAction)
+                .also { b ->
+                    // Vorschlag aus den Regeln, z. B. „→ Finanzen/Rechnungen“
+                    if (!isDir) RuleApply.suggest(ctx, f)?.let { (rule, dir) ->
+                        val apply = PendingIntent.getBroadcast(
+                            ctx, id + 1,
+                            Intent(ctx, ApplyRuleReceiver::class.java)
+                                .putExtra(EXTRA_PATH, path)
+                                .putExtra(EXTRA_RULE, rule.id),
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                        )
+                        b.addAction(R.drawable.ic_notify, "→ ${dir.name}", apply)
+                    }
+                }
                 .setAutoCancel(true)
                 .build()
             runCatching { NotificationManagerCompat.from(ctx).notify(id, n) }
         }
 
         /** Benachrichtigung nach dem Umbenennen kurz bestätigen und dann ausblenden. */
-        fun notifyDone(ctx: Context, id: Int, text: String) {
+        fun notifyDone(ctx: Context, id: Int, text: String, timeout: Long = 4000) {
             if (!canNotify(ctx)) return
             val n = NotificationCompat.Builder(ctx, CHANNEL_NEW)
                 .setSmallIcon(R.drawable.ic_notify)
                 .setContentTitle(text)
                 .setSilent(true)
-                .setTimeoutAfter(4000)
+                .setTimeoutAfter(timeout)
                 .build()
             runCatching { NotificationManagerCompat.from(ctx).notify(id, n) }
         }
@@ -265,6 +288,59 @@ class RenameReceiver : BroadcastReceiver() {
             store.saveTags(tags - Uri.fromFile(f).toString() + (newUri.toString() to t))
         }
         WatchService.notifyDone(ctx, id, "Umbenannt in „$name“")
+    }
+}
+
+/** Regeln auf eine einzelne neue Datei anwenden (Vorschlag in der Benachrichtigung oder automatisch). */
+object RuleApply {
+    /** Erste passende Regel und der Zielordner, oder null. Nur Regeln mit direktem Pfad als Ziel. */
+    fun suggest(ctx: Context, f: File): Pair<Rule, File>? {
+        val node = Node(Uri.fromFile(f), f.name, "", f.length(), f.lastModified())
+        val rule = Store(ctx).loadRules().firstOrNull { it.matches(node) && (it.targetSegments.isNotEmpty() || it.targetBase != null) }
+            ?: return null
+        val base = rule.targetBase?.let { b ->
+            val u = Uri.parse(b)
+            if (u.scheme != "file") return null
+            File(u.path!!)
+        } ?: (f.parentFile ?: return null)
+        val dir = rule.targetSegments.fold(base) { acc, seg -> File(acc, seg) }
+        if (dir.absolutePath == f.parentFile?.absolutePath) return null
+        return rule to dir
+    }
+
+    /** Verschiebt die Datei; Tags der Regel werden vergeben. Liefert die neue Datei. */
+    fun apply(ctx: Context, f: File, rule: Rule, dir: File): File? {
+        WatchState.ignore(dir.absolutePath)
+        if (!dir.isDirectory && !dir.mkdirs()) return null
+        val parent = f.parentFile ?: return null
+        val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extensionOf(f.name)) ?: "application/octet-stream"
+        val newUri = Docs.move(ctx, Uri.fromFile(f), f.name, mime, Uri.fromFile(parent), Uri.fromFile(dir), f.name) ?: return null
+        val store = Store(ctx)
+        val tags = store.loadTags().toMutableMap()
+        val old = tags.remove(Uri.fromFile(f).toString()).orEmpty()
+        val merged = normalizeTags(old + rule.tags)
+        if (merged.isNotEmpty()) tags[newUri.toString()] = merged
+        store.saveTags(tags)
+        return File(newUri.path!!)
+    }
+}
+
+/** Tipp auf „→ Ziel“ in der Benachrichtigung: Datei nach der passenden Regel einsortieren. */
+class ApplyRuleReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        val path = intent.getStringExtra(WatchService.EXTRA_PATH) ?: return
+        val id = WatchService.notificationId(path)
+        val f = File(path)
+        val s = if (f.exists()) RuleApply.suggest(ctx, f) else null
+        if (s == null) {
+            WatchService.notifyDone(ctx, id, "Datei oder Regel nicht mehr vorhanden")
+            return
+        }
+        val moved = RuleApply.apply(ctx, f, s.first, s.second)
+        WatchService.notifyDone(
+            ctx, id,
+            if (moved != null) "Verschoben nach ${Docs.prettyPath(Uri.fromFile(moved.parentFile!!))}" else "Verschieben nicht möglich",
+        )
     }
 }
 

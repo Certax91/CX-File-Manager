@@ -77,6 +77,7 @@
         </service>
 
         <receiver android:name=".RenameReceiver" android:exported="false" />
+        <receiver android:name=".ApplyRuleReceiver" android:exported="false" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

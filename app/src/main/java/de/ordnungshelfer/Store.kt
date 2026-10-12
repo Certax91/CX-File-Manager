@@ -187,6 +187,9 @@ class Store(context: Context) {
         prefs.edit().putString("content", o.toString()).apply()
     }
 
+    fun loadAutoSort(): Boolean = prefs.getBoolean("watchAutoSort", false)
+    fun saveAutoSort(on: Boolean) { prefs.edit().putBoolean("watchAutoSort", on).apply() }
+
     fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
 
     fun saveWatch(on: Boolean) {
