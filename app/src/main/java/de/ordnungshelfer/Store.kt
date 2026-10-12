@@ -157,6 +157,18 @@ class Store(context: Context) {
         prefs.edit().putString("searchFolders", JSONArray(f).toString()).apply()
     }
 
+    fun loadFavorites(): List<String> = readArray("favorites") { a, i -> a.getString(i) }
+
+    fun saveFavorites(f: Collection<String>) {
+        prefs.edit().putString("favorites", JSONArray(f.toList()).toString()).apply()
+    }
+
+    fun loadScanFolder(): String? = prefs.getString("scanFolder", null)
+
+    fun saveScanFolder(f: String?) {
+        prefs.edit().putString("scanFolder", f).apply()
+    }
+
     fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
 
     fun saveWatch(on: Boolean) {

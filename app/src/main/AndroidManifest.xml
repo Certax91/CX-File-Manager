@@ -51,7 +51,7 @@
             android:name=".ReceiveActivity"
             android:exported="true"
             android:excludeFromRecents="true"
-            android:label="Speichern mit Ordnungshelfer"
+            android:label="Speichern mit CX File Manager"
             android:taskAffinity=""
             android:theme="@style/Theme.Ordnungshelfer.Transparent">
             <intent-filter android:label="Speichern unter …">

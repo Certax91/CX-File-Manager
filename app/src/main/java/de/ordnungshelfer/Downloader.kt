@@ -52,7 +52,7 @@ object Downloader {
         val sub = subfolder.split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("/")
         val req = DownloadManager.Request(Uri.parse(url))
             .setTitle(name)
-            .setDescription("Ordnungshelfer")
+            .setDescription("CX File Manager")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, if (sub.isEmpty()) name else "$sub/$name")
         mime?.let { req.setMimeType(it) }

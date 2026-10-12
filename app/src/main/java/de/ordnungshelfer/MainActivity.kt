@@ -69,18 +69,18 @@ fun AppTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
-enum class Tab(val label: String, val icon: ImageVector) {
-    FOLDERS("Ordner", Icons.Filled.Folder),
-    RULES("Regeln", Icons.Filled.Tune),
-    SORT("Sortieren", Icons.Filled.CleaningServices),
-    DUPES("Duplikate", Icons.Filled.ContentCopy),
+enum class NavTab(val label: String, val icon: ImageVector) {
+    HOME("Home", Icons.Filled.Home),
     SEARCH("Suche", Icons.Filled.Search),
+    SCAN("Scan", Icons.Filled.DocumentScanner),
+    TOOLS("Funktionen", Icons.Filled.CleaningServices),
+    SETTINGS("Einstellung", Icons.Filled.Settings),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App(vm: MainViewModel = viewModel()) {
-    var tab by rememberSaveable { mutableStateOf(Tab.FOLDERS) }
+    var tab by rememberSaveable { mutableStateOf(NavTab.HOME) }
     val snackbar = remember { SnackbarHostState() }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var showDownload by remember { mutableStateOf(false) }
@@ -99,7 +99,7 @@ fun App(vm: MainViewModel = viewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ordnungshelfer") },
+                title = { Text("CX File Manager") },
                 actions = {
                     IconButton(onClick = {
                         // Link aus der Zwischenablage übernehmen, falls vorhanden
@@ -111,12 +111,12 @@ fun App(vm: MainViewModel = viewModel()) {
         },
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach { t ->
+                NavTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { tab = t },
                         icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(t.label) },
+                        label = { Text(t.label, maxLines = 1, softWrap = false) },
                     )
                 }
             }
@@ -125,13 +125,43 @@ fun App(vm: MainViewModel = viewModel()) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.FOLDERS -> FoldersScreen(vm)
-                Tab.RULES -> RulesScreen(vm)
-                Tab.SORT -> SortScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
-                Tab.DUPES -> DuplicatesScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
-                Tab.SEARCH -> SearchScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
+                NavTab.HOME -> HomeScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
+                NavTab.SEARCH -> SearchScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
+                NavTab.SCAN -> ScanScreen(vm)
+                NavTab.TOOLS -> ToolsScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
+                NavTab.SETTINGS -> SettingsScreen(vm)
             }
             vm.busy?.let { BusyOverlay(it) }
+        }
+    }
+}
+
+/** „Einstellung“ mit den Reitern „Allgemein“ und „Regeln“. */
+@Composable
+fun SettingsScreen(vm: MainViewModel) {
+    var sub by rememberSaveable { mutableIntStateOf(0) }
+    Column(Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = sub) {
+            Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Allgemein") }, icon = { Icon(Icons.Filled.Settings, null) })
+            Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Regeln") }, icon = { Icon(Icons.Filled.Tune, null) })
+        }
+        Box(Modifier.weight(1f)) {
+            if (sub == 0) FoldersScreen(vm) else RulesScreen(vm)
+        }
+    }
+}
+
+/** „Funktionen“ mit den Seiten „Sortieren“ und „Duplikate“. */
+@Composable
+fun ToolsScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
+    var sub by rememberSaveable { mutableIntStateOf(0) }
+    Column(Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = sub) {
+            Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Sortieren") }, icon = { Icon(Icons.Filled.CleaningServices, null) })
+            Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Duplikate") }, icon = { Icon(Icons.Filled.ContentCopy, null) })
+        }
+        Box(Modifier.weight(1f)) {
+            if (sub == 0) SortScreen(vm, onGoToFolders = onGoToSettings) else DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
         }
     }
 }

@@ -27,10 +27,10 @@ jobs:
             echo "::error::$(sed ':a;N;$!ba;s/\n/%0A/g' errors.txt)"
             exit 1
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk Ordnungshelfer.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CX-File-Manager.apk
       - name: Als Download veröffentlichen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.2-build-${{ github.run_number }}
-          name: Ordnungshelfer (Build ${{ github.run_number }})
-          files: Ordnungshelfer.apk
+          tag_name: v2.0-build-${{ github.run_number }}
+          name: CX File Manager (Build ${{ github.run_number }})
+          files: CX-File-Manager.apk

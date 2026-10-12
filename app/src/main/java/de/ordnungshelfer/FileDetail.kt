@@ -65,6 +65,14 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
                     title = { Text(node.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.ArrowBack, "Zurück") } },
                     actions = {
+                        val fav = vm.isFavorite(node.uri)
+                        IconButton(onClick = { vm.toggleFavorite(node.uri) }) {
+                            Icon(
+                                if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                if (fav) "Aus Favoriten entfernen" else "Zu Favoriten",
+                                tint = if (fav) Color(0xFFF5B400) else LocalContentColor.current,
+                            )
+                        }
                         IconButton(onClick = { openFile(ctx, node) { vm.message = it } }) {
                             Icon(Icons.Filled.OpenInNew, "Mit App öffnen")
                         }

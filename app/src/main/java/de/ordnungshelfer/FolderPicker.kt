@@ -160,7 +160,7 @@ fun FolderPickerScreen(title: String, onPick: (File) -> Unit, onCancel: () -> Un
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Schnellwahl wie auf dem Reiter „Ordner“
+            // Schnellwahl wie auf dem Seite „Einstellung“
             if (quick.isNotEmpty()) {
                 item {
                     Text("Schnell wählen", style = MaterialTheme.typography.labelLarge)
@@ -241,7 +241,7 @@ fun FolderPickerScreen(title: String, onPick: (File) -> Unit, onCancel: () -> Un
     }
 }
 
-/** Ordner als Karte – gleiche Darstellung wie auf dem Reiter „Ordner“. */
+/** Ordner als Karte – gleiche Darstellung wie auf dem Seite „Einstellung“. */
 @Composable
 private fun FolderCard(
     label: String,

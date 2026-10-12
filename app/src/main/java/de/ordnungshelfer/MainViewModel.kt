@@ -50,6 +50,63 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var allFilesAccess by mutableStateOf(Docs.hasAllFilesAccess(app))
         private set
+    /** Ordner, für den [index] gerade eingelesen ist (Explorer-Suche) */
+    var indexRoot by mutableStateOf<String?>(null)
+        private set
+
+    /** Alle Dateien des Handys für die Home-Seite (null = noch nicht geladen) */
+    var library by mutableStateOf<List<DupEntry>?>(null)
+        private set
+    var libraryLoading by mutableStateOf(false)
+        private set
+
+    fun loadLibrary() {
+        if (libraryLoading) return
+        libraryLoading = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val l = Library.load(ctx).sortedByDescending { it.node.modified }
+            withContext(Dispatchers.Main) {
+                library = l
+                libraryLoading = false
+            }
+        }
+    }
+
+    /** Zuletzt genutzter Ordner für Scans */
+    var scanFolder by mutableStateOf(store.loadScanFolder())
+        private set
+
+    fun setScanFolder(f: String?) {
+        scanFolder = f
+        store.saveScanFolder(f)
+    }
+
+    /** Gescanntes PDF unter eigenem Namen im Wunschordner speichern. */
+    fun saveScan(pdf: Uri, wanted: String, dest: String?, newTags: List<String>, onDone: (Uri?) -> Unit) {
+        var name = wanted.trim().replace('/', '_').trimStart('.')
+        if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return }
+        if (!name.endsWith(".pdf", ignoreCase = true)) name += ".pdf"
+        val target = dest ?: Uri.fromFile(
+            File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS), "Scans").apply { mkdirs() }
+        ).toString()
+        work("Speichere Scan …") {
+            val saved = Docs.copy(ctx, pdf, name, "application/pdf", Docs.rootDoc(Uri.parse(target)))
+            withContext(Dispatchers.Main) {
+                if (saved == null) {
+                    message = "Speichern nicht möglich"
+                } else {
+                    if (newTags.isNotEmpty()) remapTags(emptyMap(), mapOf(saved.toString() to newTags))
+                    message = "Gespeichert: ${Docs.displayName(ctx, saved) ?: name}"
+                }
+                onDone(saved)
+            }
+        }
+    }
+
+    /** Favoriten (Datei-URIs) */
+    var favorites by mutableStateOf(store.loadFavorites().toSet())
+        private set
+
     /** Ordner für die Suche (leer = Standard) */
     var searchFolders by mutableStateOf(store.loadSearchFolders())
         private set
@@ -399,6 +456,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Liest einen Ordner samt Unterordnern für die Explorer-Suche ein. */
+    fun buildIndexFor(dir: File) = work("Durchsuche „${dir.name}“ …") {
+        val all = Sorter.listAll(ctx, listOf(Uri.fromFile(dir).toString() to dir.name)) { n ->
+            busy = "Durchsuche „${dir.name}“ … ($n)"
+        }
+        withContext(Dispatchers.Main) {
+            index = all
+            indexRoot = dir.absolutePath
+        }
+    }
+
+    /** Startordner der Suche (null = Hauptordner des internen Speichers). */
+    fun setSearchStart(stored: String?) {
+        searchFolders = listOfNotNull(stored)
+        store.saveSearchFolders(searchFolders)
+        message = "Startordner gespeichert"
+    }
+
+    fun isFavorite(uri: Uri) = uri.toString() in favorites
+
+    fun toggleFavorite(uri: Uri) {
+        val k = uri.toString()
+        favorites = if (k in favorites) favorites - k else favorites + k
+        store.saveFavorites(favorites)
+        message = if (k in favorites) "Zu Favoriten hinzugefügt" else "Aus Favoriten entfernt"
+    }
+
     fun addSearchFolder(stored: String) {
         if (stored in searchFolders) return
         // War „Ganzer Speicher“ aktiv, gilt ab jetzt nur der gewählte Ordner
@@ -416,7 +500,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Ganzen Speicher durchsuchen (interner Speicher + ggf. SD-Karte). */
     fun searchWholeStorage() {
         if (!allFilesAccess) {
-            message = "Dafür braucht die App „Zugriff auf alle Dateien“ (Reiter „Ordner“)"
+            message = "Dafür braucht die App „Zugriff auf alle Dateien“ (unter „Einstellung“)"
             return
         }
         searchFolders = Docs.storageRoots(ctx).map { Uri.fromFile(it.second).toString() }
@@ -605,6 +689,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (renamed.isEmpty() && added.isEmpty()) return
         val updated = tags.toMutableMap()
         renamed.forEach { (old, new) -> updated.remove(old)?.let { updated[new] = it } }
+        // Favoriten wandern ebenfalls mit
+        if (renamed.keys.any { it in favorites }) {
+            favorites = favorites.map { renamed[it] ?: it }.toSet()
+            store.saveFavorites(favorites)
+        }
         added.forEach { (uri, t) -> updated[uri] = normalizeTags(updated[uri].orEmpty() + t) }
         tags = updated
         store.saveTags(tags)
