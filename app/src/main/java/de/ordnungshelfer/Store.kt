@@ -21,6 +21,8 @@ class Store(context: Context) {
             field = runCatching { RuleField.valueOf(o.getString("field")) }.getOrDefault(RuleField.NAME_CONTAINS),
             pattern = o.getString("pattern"),
             targetFolder = o.getString("target"),
+            targetBase = o.optString("base", "").ifEmpty { null },
+            tags = o.optJSONArray("tags")?.let { t -> List(t.length()) { t.getString(it) } } ?: emptyList(),
         )
     }
 
@@ -33,6 +35,8 @@ class Store(context: Context) {
                     .put("field", it.field.name)
                     .put("pattern", it.pattern)
                     .put("target", it.targetFolder)
+                    .put("base", it.targetBase ?: "")
+                    .put("tags", JSONArray(it.tags))
             )
         }
         prefs.edit().putString("rules", a.toString()).apply()
@@ -42,6 +46,7 @@ class Store(context: Context) {
         byType = prefs.getBoolean("byType", true),
         byDate = prefs.getBoolean("byDate", false),
         includeSubfolders = prefs.getBoolean("includeSubfolders", false),
+        targetBase = prefs.getString("targetBase", null),
     )
 
     fun saveSettings(s: Settings) {
@@ -49,6 +54,7 @@ class Store(context: Context) {
             .putBoolean("byType", s.byType)
             .putBoolean("byDate", s.byDate)
             .putBoolean("includeSubfolders", s.includeSubfolders)
+            .putString("targetBase", s.targetBase)
             .apply()
     }
 
@@ -106,6 +112,24 @@ class Store(context: Context) {
             )
         }
         prefs.edit().putString("trash", a.toString()).apply()
+    }
+
+    /** Tags je Datei: Datei-URI → Tags. */
+    fun loadTags(): Map<String, List<String>> {
+        val raw = prefs.getString("tags", null) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(raw)
+            o.keys().asSequence().associateWith { k ->
+                val a = o.getJSONArray(k)
+                List(a.length()) { a.getString(it) }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun saveTags(tags: Map<String, List<String>>) {
+        val o = JSONObject()
+        tags.forEach { (k, v) -> if (v.isNotEmpty()) o.put(k, JSONArray(v)) }
+        prefs.edit().putString("tags", o.toString()).apply()
     }
 
     private fun <T> readArray(key: String, read: (JSONArray, Int) -> T): List<T> {

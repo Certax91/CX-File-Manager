@@ -40,6 +40,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var trash by mutableStateOf(store.loadTrash())
         private set
+
+    /** Tags je Datei-URI */
+    var tags by mutableStateOf(store.loadTags())
+        private set
+
+    /** Alle Dateien für die Suche. null = noch nicht eingelesen. */
+    var index by mutableStateOf<List<DupEntry>?>(null)
+        private set
     var allFilesAccess by mutableStateOf(Docs.hasAllFilesAccess(app))
         private set
     var busy by mutableStateOf<String?>(null)
@@ -95,6 +103,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         addRoot(Uri.fromFile(dir))
     }
 
+    /** Dauerhaften Zugriff auf einen über die Android-Ordnerauswahl gewählten Ordner sichern. */
+    fun grantFolder(uri: Uri) {
+        runCatching {
+            ctx.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+    }
+
+    /** Anzeigename eines gespeicherten Ordners (Ablageort, Quellordner). */
+    fun folderLabel(stored: String): String = Docs.prettyFolder(stored)
+
     fun removeRoot(s: String) {
         runCatching {
             ctx.contentResolver.releasePersistableUriPermission(
@@ -117,8 +138,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- Regeln ----------
 
-    fun addRule(field: RuleField, pattern: String, target: String) {
-        rules = rules + Rule(System.currentTimeMillis(), field, pattern.trim(), target.trim().trim('/'))
+    fun addRule(field: RuleField, pattern: String, target: String, base: String?, ruleTags: List<String>) {
+        rules = rules + Rule(System.currentTimeMillis(), field, pattern.trim(), target.trim().trim('/'), base, normalizeTags(ruleTags))
         store.saveRules(rules)
         plan = null
     }
@@ -163,6 +184,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val r = Sorter.execute(ctx, moves) { n -> busy = "Verschiebe $n von ${moves.size} …" }
             store.saveUndo(r.undo)
             withContext(Dispatchers.Main) {
+                remapTags(r.renamed, r.autoTags)
+                index = null
                 undoCount = r.undo.size
                 plan = null
                 selected = emptySet()
@@ -176,9 +199,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val entries = store.loadUndo()
         if (entries.isEmpty()) return
         work("Mache rückgängig …") {
-            val failed = Sorter.undo(ctx, entries) { n -> busy = "Hole zurück $n von ${entries.size} …" }
+            val (failed, renamed) = Sorter.undo(ctx, entries) { n -> busy = "Hole zurück $n von ${entries.size} …" }
             store.saveUndo(emptyList())
             withContext(Dispatchers.Main) {
+                remapTags(renamed, emptyMap())
+                index = null
                 undoCount = 0
                 plan = null
                 message = if (failed == 0) "Letzte Sortierung rückgängig gemacht"
@@ -225,7 +250,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restoreFromTrash(t: TrashEntry) = work("Stelle wieder her …") {
-        val ok = Sorter.restore(ctx, t)
+        val ok = Sorter.restore(ctx, t) != null
         val newTrash = if (ok || Docs.displayName(ctx, Uri.parse(t.uri)) == null) trash - t else trash
         store.saveTrash(newTrash)
         withContext(Dispatchers.Main) {
@@ -260,6 +285,74 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 store.saveTrash(trash)
             }
         }
+    }
+
+    // ---------- Tags & Suche ----------
+
+    /** Liest alle Dateien der Ordner und Ablageorte ein, plus alle getaggten Dateien. */
+    fun buildIndex() = work("Lese Dateien ein …") {
+        val bases = (rules.mapNotNull { it.targetBase } + listOfNotNull(settings.targetBase))
+            .filter { allFilesAccess || !it.startsWith("file:") }
+        val folders = (usableRoots + bases).distinct().map { it to (rootNames[it] ?: Docs.prettyFolder(it).substringAfterLast('/')) }
+        val all = Sorter.listAll(ctx, folders).toMutableList()
+        val known = all.map { it.node.uri.toString() }.toMutableSet()
+        // Getaggte Dateien außerhalb dieser Ordner trotzdem finden
+        val trashed = trash.map { it.uri }.toSet()
+        val stale = mutableListOf<String>()
+        for (key in tags.keys) {
+            if (key in known || key in trashed) continue
+            val uri = Uri.parse(key)
+            val node = Docs.nodeOf(ctx, uri)
+            if (node == null) stale += key
+            else all += DupEntry(node, Docs.prettyParent(uri), uri, uri)
+        }
+        withContext(Dispatchers.Main) {
+            if (stale.isNotEmpty()) {
+                // Dateien, die es nicht mehr gibt, aus der Tag-Liste entfernen
+                tags = tags - stale.toSet()
+                store.saveTags(tags)
+            }
+            index = all.sortedByDescending { it.node.modified }
+        }
+    }
+
+    /** Alle vergebenen Tags, die häufigsten zuerst. */
+    val allTags: List<String>
+        get() = tags.values.flatten()
+            .groupBy { it.lowercase() }
+            .entries.sortedWith(compareByDescending<Map.Entry<String, List<String>>> { it.value.size }.thenBy { it.key })
+            .map { it.value.first() }
+
+    fun tagsOf(uri: Uri): List<String> = tags[uri.toString()].orEmpty()
+
+    fun setTags(uri: Uri, newTags: List<String>) {
+        val key = uri.toString()
+        val clean = normalizeTags(newTags)
+        tags = if (clean.isEmpty()) tags - key else tags + (key to clean)
+        store.saveTags(tags)
+    }
+
+    /** Einen Tag mehreren Dateien auf einmal geben. */
+    fun addTagTo(uris: Collection<Uri>, tag: String) {
+        val t = normalizeTags(listOf(tag)).firstOrNull() ?: return
+        val updated = tags.toMutableMap()
+        uris.forEach { u ->
+            val key = u.toString()
+            updated[key] = normalizeTags(updated[key].orEmpty() + t)
+        }
+        tags = updated
+        store.saveTags(tags)
+        message = "Tag „$t“ an ${uris.size} Dateien vergeben"
+    }
+
+    /** Tags folgen der Datei, wenn die App sie verschiebt. */
+    private fun remapTags(renamed: Map<String, String>, added: Map<String, List<String>>) {
+        if (renamed.isEmpty() && added.isEmpty()) return
+        val updated = tags.toMutableMap()
+        renamed.forEach { (old, new) -> updated.remove(old)?.let { updated[new] = it } }
+        added.forEach { (uri, t) -> updated[uri] = normalizeTags(updated[uri].orEmpty() + t) }
+        tags = updated
+        store.saveTags(tags)
     }
 
     private fun work(label: String, block: suspend () -> Unit) {

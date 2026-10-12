@@ -72,6 +72,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     RULES("Regeln", Icons.Filled.Tune),
     SORT("Sortieren", Icons.Filled.CleaningServices),
     DUPES("Duplikate", Icons.Filled.ContentCopy),
+    SEARCH("Suche", Icons.Filled.Search),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -109,6 +110,7 @@ fun App(vm: MainViewModel = viewModel()) {
                 Tab.RULES -> RulesScreen(vm)
                 Tab.SORT -> SortScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
                 Tab.DUPES -> DuplicatesScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
+                Tab.SEARCH -> SearchScreen(vm, onGoToFolders = { tab = Tab.FOLDERS })
             }
             vm.busy?.let { BusyOverlay(it) }
         }
@@ -188,6 +190,10 @@ fun FoldersScreen(vm: MainViewModel) {
                 arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
             )
         }
+    }
+
+    val chooseTargetBase = rememberFolderChooser(vm, "Ablageort wählen") {
+        vm.updateSettings(vm.settings.copy(targetBase = it))
     }
 
     LazyColumn(
@@ -274,6 +280,17 @@ fun FoldersScreen(vm: MainViewModel) {
         }
         item {
             Spacer(Modifier.height(8.dp))
+            SectionTitle("Ablageort")
+            Spacer(Modifier.height(4.dp))
+            BaseFolderRow(
+                label = "Sortierte Dateien ablegen in",
+                value = vm.settings.targetBase?.let { vm.folderLabel(it) } ?: "Im jeweiligen Ordner (Unterordner)",
+                onChoose = chooseTargetBase,
+                onReset = if (vm.settings.targetBase != null) ({ vm.updateSettings(vm.settings.copy(targetBase = null)) }) else null,
+            )
+        }
+        item {
+            Spacer(Modifier.height(8.dp))
             SectionTitle("Sortieren nach")
         }
         item {
@@ -295,6 +312,27 @@ fun FoldersScreen(vm: MainViewModel) {
         }
         item {
             Hint("Eigene Regeln (Reiter „Regeln“) haben immer Vorrang vor dem Dateityp.")
+        }
+    }
+}
+
+/** Zeile mit gewähltem Ordner und Knöpfen „Ordner wählen“ / „Zurücksetzen“. */
+@Composable
+fun BaseFolderRow(label: String, value: String, onChoose: () -> Unit, onReset: (() -> Unit)?) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Folder, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = onChoose) { Text("Ordner wählen") }
+                if (onReset != null) TextButton(onClick = onReset) { Text("Zurücksetzen") }
+            }
         }
     }
 }
@@ -321,6 +359,9 @@ fun RulesScreen(vm: MainViewModel) {
     var field by rememberSaveable { mutableStateOf(RuleField.NAME_CONTAINS) }
     var pattern by rememberSaveable { mutableStateOf("") }
     var target by rememberSaveable { mutableStateOf("") }
+    var base by rememberSaveable { mutableStateOf<String?>(null) }
+    var tagText by rememberSaveable { mutableStateOf("") }
+    val chooseBase = rememberFolderChooser(vm, "Ablageort für diese Regel") { base = it }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -330,7 +371,7 @@ fun RulesScreen(vm: MainViewModel) {
         item {
             SectionTitle("Neue Regel")
             Spacer(Modifier.height(4.dp))
-            Hint("Beispiel: Name enthält „Rechnung“ → Ordner „Finanzen/Rechnungen“. Mit „/“ legst du Unterordner an.")
+            Hint("Beispiel: Name enthält „Rechnung“ → Ordner „Finanzen/Rechnungen“. Mit „/“ legst du Unterordner an. Über „Ablageort“ kann das Ziel auch ein ganz anderer Ordner sein.")
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -347,19 +388,35 @@ fun RulesScreen(vm: MainViewModel) {
             )
         }
         item {
+            BaseFolderRow(
+                label = "Ablageort",
+                value = base?.let { vm.folderLabel(it) } ?: "Im sortierten Ordner (bzw. allgemeiner Ablageort)",
+                onChoose = chooseBase,
+                onReset = if (base != null) ({ base = null }) else null,
+            )
+        }
+        item {
             OutlinedTextField(
                 value = target, onValueChange = { target = it },
-                label = { Text("Zielordner") },
+                label = { Text(if (base == null) "Zielordner" else "Unterordner (optional)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = tagText, onValueChange = { tagText = it },
+                label = { Text("Tags (optional, mit Komma trennen)") },
+                placeholder = { Text("z. B. Finanzen, Steuer") },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
             Button(
                 onClick = {
-                    vm.addRule(field, pattern, target)
-                    pattern = ""; target = ""
+                    vm.addRule(field, pattern, target, base, parseTags(tagText))
+                    pattern = ""; target = ""; base = null; tagText = ""
                 },
-                enabled = pattern.isNotBlank() && target.trim('/', ' ').isNotEmpty(),
+                enabled = pattern.isNotBlank() && (base != null || target.trim('/', ' ').isNotEmpty()),
             ) {
                 Icon(Icons.Filled.Add, null)
                 Spacer(Modifier.width(8.dp))
@@ -377,11 +434,19 @@ fun RulesScreen(vm: MainViewModel) {
                 Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${rule.field.label} „${rule.pattern}“")
+                        val dest = listOfNotNull(rule.targetBase?.let { vm.folderLabel(it) }, rule.targetFolder.ifEmpty { null })
                         Text(
-                            "→ ${rule.targetFolder}",
+                            "→ ${dest.joinToString("/")}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
+                        if (rule.tags.isNotEmpty()) {
+                            Text(
+                                rule.tags.joinToString("  ") { "#$it" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
                     }
                     IconButton(onClick = { vm.moveRule(rule, up = true) }, enabled = i > 0) {
                         Icon(Icons.Filled.KeyboardArrowUp, "Nach oben")
@@ -486,7 +551,7 @@ fun SortScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
 @Composable
 fun PlanRow(m: PlannedMove, checked: Boolean, onToggle: () -> Unit) {
     val from = (listOf(m.rootName) + m.currentPath).joinToString("/")
-    val to = (listOf(m.rootName) + m.target).joinToString("/")
+    val to = (listOf(m.baseName) + m.target).joinToString("/")
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -500,7 +565,11 @@ fun PlanRow(m: PlannedMove, checked: Boolean, onToggle: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
-            Text(m.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                m.reason + if (m.tags.isEmpty()) "" else "  ·  " + m.tags.joinToString(" ") { "#$it" },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

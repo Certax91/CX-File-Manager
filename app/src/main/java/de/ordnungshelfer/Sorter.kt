@@ -6,6 +6,9 @@ import java.security.MessageDigest
 
 object Sorter {
 
+    /** Wohin eine Datei soll: unter [base] (null = im sortierten Ordner selbst) in die Unterordner [segments]. */
+    data class Target(val base: String?, val segments: List<String>, val reason: String, val tags: List<String>)
+
     /** Durchsucht die gewählten Ordner und berechnet, welche Datei wohin gehört. Verschiebt noch nichts. */
     fun plan(
         ctx: Context,
@@ -14,15 +17,28 @@ object Sorter {
         rules: List<Rule>,
         settings: Settings,
     ): List<PlannedMove> {
-        val managed = Categories.names + rules.mapNotNull { it.targetSegments.firstOrNull() }
+        val managed = Categories.names + rules.filter { it.targetBase == null }.mapNotNull { it.targetSegments.firstOrNull() }
+        val bases = (rules.mapNotNull { it.targetBase } + listOfNotNull(settings.targetBase)).distinct()
+        val baseDocs = bases.associateWith { Docs.rootDoc(Uri.parse(it)) }
+        val baseNames = bases.associateWith { Docs.displayName(ctx, baseDocs.getValue(it)) ?: "Ablage" }
+        val ctxData = WalkData(rules, settings, managed, baseDocs, baseNames, baseDocs.values.map { it.toString() }.toSet())
         val out = mutableListOf<PlannedMove>()
         for (r in roots) {
-            val tree = Uri.parse(r)
-            val rootDoc = Docs.rootDoc(tree)
-            walk(ctx, rootDoc, rootDoc, rootNames[r] ?: "Ordner", emptyList(), rules, settings, managed, out)
+            val rootDoc = Docs.rootDoc(Uri.parse(r))
+            walk(ctx, rootDoc, rootDoc, rootNames[r] ?: "Ordner", emptyList(), ctxData, out)
         }
-        return out
+        return out.distinctBy { it.file.uri.toString() }
     }
+
+    private class WalkData(
+        val rules: List<Rule>,
+        val settings: Settings,
+        val managed: Set<String>,
+        val baseDocs: Map<String, Uri>,
+        val baseNames: Map<String, String>,
+        /** Ablageorte werden beim Durchsuchen übersprungen, damit Sortiertes nicht erneut sortiert wird. */
+        val skipDirs: Set<String>,
+    )
 
     private fun walk(
         ctx: Context,
@@ -30,34 +46,46 @@ object Sorter {
         dir: Uri,
         rootName: String,
         path: List<String>,
-        rules: List<Rule>,
-        settings: Settings,
-        managed: Set<String>,
+        d: WalkData,
         out: MutableList<PlannedMove>,
     ) {
         for (node in Docs.children(ctx, dir)) {
             if (node.name.startsWith(".")) continue // versteckte Dateien/Ordner (auch .Papierkorb) nicht anfassen
             if (node.isDir) {
                 if (node.name == "Android") continue // Systemdaten von Apps nie anfassen
+                if (node.uri.toString() in d.skipDirs) continue
                 // Bereits sortierte Ordner (Bilder, PDFs, eigene Zielordner …) werden nicht erneut sortiert
-                val isManaged = path.isEmpty() && node.name in managed
-                if (settings.includeSubfolders && !isManaged) {
-                    walk(ctx, root, node.uri, rootName, path + node.name, rules, settings, managed, out)
+                val isManaged = path.isEmpty() && node.name in d.managed
+                if (d.settings.includeSubfolders && !isManaged) {
+                    walk(ctx, root, node.uri, rootName, path + node.name, d, out)
                 }
             } else {
-                val (target, reason) = targetFor(ctx, node, rules, settings) ?: continue
-                if (target == path) continue // liegt schon richtig
-                out += PlannedMove(node, dir, root, rootName, path, target, reason)
+                val t = targetFor(ctx, node, d.rules, d.settings) ?: continue
+                val baseUri = t.base?.let { d.baseDocs[it] } ?: root
+                val baseName = t.base?.let { d.baseNames[it] } ?: rootName
+                if (isAlreadyThere(dir, root, path, baseUri, t.segments)) continue
+                out += PlannedMove(node, dir, root, rootName, path, baseUri, baseName, t.segments, t.reason, t.tags)
             }
         }
     }
 
-    fun targetFor(ctx: Context, node: Node, rules: List<Rule>, s: Settings): Pair<List<String>, String>? {
-        val rule = rules.firstOrNull { it.matches(node.name) && it.targetSegments.isNotEmpty() }
+    private fun isAlreadyThere(dir: Uri, root: Uri, path: List<String>, base: Uri, segments: List<String>): Boolean {
+        if (base == root && segments == path) return true
+        if (Docs.isFile(dir) && Docs.isFile(base)) {
+            val dest = segments.fold(java.io.File(base.path!!)) { f, s -> java.io.File(f, s) }
+            return dest.absolutePath == java.io.File(dir.path!!).absolutePath
+        }
+        return false
+    }
+
+    fun targetFor(ctx: Context, node: Node, rules: List<Rule>, s: Settings): Target? {
+        val rule = rules.firstOrNull { it.matches(node.name) && (it.targetSegments.isNotEmpty() || it.targetBase != null) }
         val target = mutableListOf<String>()
         val reasons = mutableListOf<String>()
+        var base: String? = s.targetBase
         when {
             rule != null -> {
+                if (rule.targetBase != null) base = rule.targetBase
                 target += rule.targetSegments
                 reasons += "Regel: ${rule.field.label} „${rule.pattern}“"
             }
@@ -67,25 +95,36 @@ object Sorter {
             }
         }
         if (s.byDate) {
-            MediaDate.of(ctx, node)?.let { d ->
-                target += d.year.toString()
-                target += "%02d".format(d.month)
-                reasons += d.source.label
+            MediaDate.of(ctx, node)?.let { dt ->
+                target += dt.year.toString()
+                target += "%02d".format(dt.month)
+                reasons += dt.source.label
             }
         }
-        if (target.isEmpty()) return null
-        return target to reasons.joinToString(" · ")
+        if (target.isEmpty() && base == null) return null
+        if (rule == null && !s.byType && !s.byDate) return null
+        return Target(base, target, reasons.joinToString(" · "), rule?.tags.orEmpty())
     }
 
-    data class Result(val moved: Int, val failed: Int, val undo: List<UndoEntry>)
+    data class Result(
+        val moved: Int,
+        val failed: Int,
+        val undo: List<UndoEntry>,
+        /** alte URI → neue URI, damit Tags mitwandern */
+        val renamed: Map<String, String>,
+        /** neue URI → Tags aus Regeln */
+        val autoTags: Map<String, List<String>>,
+    )
 
     fun execute(ctx: Context, moves: List<PlannedMove>, progress: (Int) -> Unit): Result {
         val cache = mutableMapOf<String, Uri>()
         val undo = mutableListOf<UndoEntry>()
+        val renamed = mutableMapOf<String, String>()
+        val autoTags = mutableMapOf<String, List<String>>()
         var failed = 0
         moves.forEachIndexed { i, m ->
             progress(i + 1)
-            val targetDir = Docs.ensureDir(ctx, m.root, m.target, cache)
+            val targetDir = Docs.ensureDir(ctx, m.base, m.target, cache)
             val newUri = targetDir?.let {
                 Docs.move(ctx, m.file.uri, m.file.name, m.file.mime, m.parent, it, m.file.name)
             }
@@ -93,14 +132,17 @@ object Sorter {
                 failed++
             } else {
                 undo += UndoEntry(newUri.toString(), m.parent.toString(), targetDir.toString(), m.file.name, m.file.mime)
+                renamed[m.file.uri.toString()] = newUri.toString()
+                if (m.tags.isNotEmpty()) autoTags[newUri.toString()] = m.tags
             }
         }
-        return Result(undo.size, failed, undo)
+        return Result(undo.size, failed, undo, renamed, autoTags)
     }
 
-    /** Macht die letzte Sortierung rückgängig. Gibt die Zahl der nicht zurückgeholten Dateien zurück. */
-    fun undo(ctx: Context, entries: List<UndoEntry>, progress: (Int) -> Unit): Int {
+    /** Macht die letzte Sortierung rückgängig. Liefert (Fehlschläge, alte URI → neue URI). */
+    fun undo(ctx: Context, entries: List<UndoEntry>, progress: (Int) -> Unit): Pair<Int, Map<String, String>> {
         var failed = 0
+        val renamed = mutableMapOf<String, String>()
         val touchedDirs = mutableSetOf<String>()
         entries.reversed().forEachIndexed { i, e ->
             progress(i + 1)
@@ -110,15 +152,20 @@ object Sorter {
                 failed++
                 return@forEachIndexed
             }
-            val ok = Docs.move(ctx, file, currentName, e.mime, Uri.parse(e.currentParent), Uri.parse(e.originalParent), e.originalName)
-            if (ok == null) failed++ else touchedDirs += e.currentParent
+            val back = Docs.move(ctx, file, currentName, e.mime, Uri.parse(e.currentParent), Uri.parse(e.originalParent), e.originalName)
+            if (back == null) {
+                failed++
+            } else {
+                touchedDirs += e.currentParent
+                renamed[e.movedUri] = back.toString()
+            }
         }
         // Leere Ordner, die beim Sortieren entstanden sind, wieder entfernen
         touchedDirs.forEach { d ->
             val uri = Uri.parse(d)
             if (Docs.children(ctx, uri).isEmpty()) Docs.delete(ctx, uri)
         }
-        return failed
+        return failed to renamed
     }
 
     /** Findet inhaltsgleiche Dateien: erst nach Größe vorsortiert, dann per SHA-256 verglichen. */
@@ -149,6 +196,16 @@ object Sorter {
                 .forEach { g -> groups += g.sortedBy { it.node.modified } } // älteste zuerst = Original
         }
         return groups.sortedByDescending { it.first().node.size * (it.size - 1) }
+    }
+
+    /** Alle Dateien der Ordner (inkl. Unterordner) – für die Suche. */
+    fun listAll(ctx: Context, folders: List<Pair<String, String>>): List<DupEntry> {
+        val out = mutableListOf<DupEntry>()
+        for ((stored, name) in folders) {
+            val root = Docs.rootDoc(Uri.parse(stored))
+            collect(ctx, root, root, name, out)
+        }
+        return out.distinctBy { it.node.uri.toString() }
     }
 
     private fun collect(ctx: Context, root: Uri, dir: Uri, path: String, out: MutableList<DupEntry>) {
@@ -206,10 +263,10 @@ object Sorter {
     }
 
     /** Holt eine Datei aus dem Papierkorb an ihren alten Platz zurück. */
-    fun restore(ctx: Context, t: TrashEntry): Boolean {
+    fun restore(ctx: Context, t: TrashEntry): Uri? {
         val uri = Uri.parse(t.uri)
-        val name = Docs.displayName(ctx, uri) ?: return false
-        return Docs.move(ctx, uri, name, t.mime, Uri.parse(t.trashDir), Uri.parse(t.originalParent), t.originalName) != null
+        val name = Docs.displayName(ctx, uri) ?: return null
+        return Docs.move(ctx, uri, name, t.mime, Uri.parse(t.trashDir), Uri.parse(t.originalParent), t.originalName)
     }
 
     /** Löscht endgültig. true, wenn die Datei danach weg ist. */
@@ -223,3 +280,4 @@ object Sorter {
 
     fun isExpired(t: TrashEntry): Boolean = System.currentTimeMillis() - t.deletedAt > TRASH_DAYS * DAY_MS
 }
+

@@ -14,6 +14,10 @@ data class Rule(
     val field: RuleField,
     val pattern: String,
     val targetFolder: String,
+    /** Fester Ablageort (Ordnerpicker). null = innerhalb des jeweils sortierten Ordners. */
+    val targetBase: String? = null,
+    /** Tags, die Dateien beim Sortieren durch diese Regel automatisch bekommen. */
+    val tags: List<String> = emptyList(),
 ) {
     fun matches(fileName: String): Boolean {
         val p = pattern.trim()
@@ -33,6 +37,8 @@ data class Settings(
     val byType: Boolean = true,
     val byDate: Boolean = false,
     val includeSubfolders: Boolean = false,
+    /** Gemeinsamer Ablageort für alle sortierten Dateien. null = im jeweils sortierten Ordner. */
+    val targetBase: String? = null,
 )
 
 /** Eine Datei oder ein Ordner, gelesen über das Storage Access Framework. */
@@ -53,8 +59,12 @@ data class PlannedMove(
     val root: Uri,
     val rootName: String,
     val currentPath: List<String>,
+    /** Ordner, unter dem [target] angelegt wird (der sortierte Ordner oder ein gewählter Ablageort). */
+    val base: Uri,
+    val baseName: String,
     val target: List<String>,
     val reason: String,
+    val tags: List<String> = emptyList(),
 )
 
 /** Merkt sich eine Verschiebung, damit sie rückgängig gemacht werden kann. */
@@ -105,3 +115,11 @@ object Categories {
         return map.firstOrNull { ext in it.second }?.first ?: OTHER
     }
 }
+
+/** Normalisiert Tags: ohne „#“, ohne Leerzeichen am Rand, keine Dubletten (Groß-/Kleinschreibung egal). */
+fun normalizeTags(raw: Collection<String>): List<String> =
+    raw.map { it.trim().removePrefix("#").trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
+
+fun parseTags(text: String): List<String> = normalizeTags(text.split(',', ';'))

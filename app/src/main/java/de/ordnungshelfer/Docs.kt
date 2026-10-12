@@ -176,6 +176,22 @@ object Docs {
         val existingNames = children(ctx, toParent).map { it.name }.toSet()
         val finalName = uniqueName(desiredName, existingNames)
 
+        // Aus einem freigegebenen Ordner (content://) in einen direkten Pfad (file://): kopieren, dann löschen
+        if (isFile(toParent)) {
+            val dest = File(f(toParent), finalName)
+            val copied = runCatching {
+                ctx.contentResolver.openInputStream(file)!!.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }.isSuccess
+            if (!copied || !delete(ctx, file)) {
+                dest.delete()
+                return null
+            }
+            scan(ctx, dest.absolutePath)
+            return Uri.fromFile(dest)
+        }
+
         // 1. Schneller, direkter Weg (gleicher Speicher, Name bleibt)
         if (finalName == currentName) {
             val moved = runCatching {
@@ -215,6 +231,64 @@ object Docs {
         scan(ctx, src.absolutePath, dest.absolutePath)
         return Uri.fromFile(dest)
     }
+
+    /** Infos zu einer einzelnen Datei, oder null, wenn es sie nicht (mehr) gibt. */
+    fun nodeOf(ctx: Context, uri: Uri): Node? {
+        if (isFile(uri)) {
+            val file = f(uri)
+            if (!file.isFile) return null
+            return Node(uri, file.name, mimeOf(file.name), file.length(), file.lastModified())
+        }
+        return try {
+            ctx.contentResolver.query(
+                uri,
+                arrayOf(Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED),
+                null, null, null,
+            )?.use { c ->
+                if (!c.moveToFirst()) return null
+                Node(
+                    uri = uri,
+                    name = c.getString(0) ?: return null,
+                    mime = c.getString(1) ?: "application/octet-stream",
+                    size = if (c.isNull(2)) 0L else c.getLong(2),
+                    modified = if (c.isNull(3)) 0L else c.getLong(3),
+                )
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Ordnerpfad einer Datei zur Anzeige, z. B. „Interner Speicher/Download/PDFs“. */
+    fun prettyParent(uri: Uri): String {
+        if (isFile(uri)) return prettyPath(Uri.fromFile(f(uri).parentFile ?: f(uri)))
+        val id = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return ""
+        val volume = id.substringBefore(':')
+        val path = id.substringAfter(':', "").substringBeforeLast('/', "")
+        val volName = if (volume == "primary") "Interner Speicher" else "SD-Karte"
+        return if (path.isEmpty()) volName else "$volName/$path"
+    }
+
+    /** Unterordner eines direkten Pfads für den Ordnerpicker (ohne versteckte Ordner), alphabetisch. */
+    fun subfolders(dir: File): List<File> =
+        (dir.listFiles() ?: emptyArray())
+            .filter { it.isDirectory && !it.name.startsWith(".") }
+            .sortedBy { it.name.lowercase() }
+
+    /** Speicherorte (interner Speicher und ggf. SD-Karte) als Startpunkte für den Ordnerpicker. */
+    fun storageRoots(ctx: Context): List<Pair<String, File>> {
+        val internal = Environment.getExternalStorageDirectory()
+        val out = mutableListOf("Interner Speicher" to internal)
+        ctx.getExternalFilesDirs(null).filterNotNull().forEach { appDir ->
+            // /storage/XXXX-XXXX/Android/data/<paket>/files → /storage/XXXX-XXXX
+            val root = File(appDir.absolutePath.substringBefore("/Android/"))
+            if (root.absolutePath != internal.absolutePath && root.canRead()) out += "SD-Karte" to root
+        }
+        return out
+    }
+
+    /** Ein Ordner-URI (file:// oder Ordnerfreigabe) als lesbarer Name, z. B. „Interner Speicher/Archiv“. */
+    fun prettyFolder(stored: String): String = prettyPath(Uri.parse(stored))
 
     private fun uniqueName(name: String, existing: Set<String>): String {
         if (name !in existing) return name
