@@ -12,8 +12,18 @@ android {
         applicationId = "de.ordnungshelfer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+    }
+
+    // Fester Schlüssel, damit neue Versionen über die alte installiert werden können
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("ordnungshelfer.keystore")
+            storePassword = "ordnungshelfer"
+            keyAlias = "ordnungshelfer"
+            keyPassword = "ordnungshelfer"
+        }
     }
 
     buildTypes {

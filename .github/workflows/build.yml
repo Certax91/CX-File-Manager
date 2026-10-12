@@ -31,6 +31,6 @@ jobs:
       - name: Als Download veröffentlichen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0-build-${{ github.run_number }}
+          tag_name: v1.1-build-${{ github.run_number }}
           name: Ordnungshelfer (Build ${{ github.run_number }})
           files: Ordnungshelfer.apk
