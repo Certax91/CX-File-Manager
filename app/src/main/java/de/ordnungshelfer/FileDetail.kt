@@ -59,9 +59,14 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
     val chooseMoveTarget = rememberFolderChooser(vm, "Verschieben nach") { dest -> vm.moveFile(entry, dest, onChanged) }
     val chooseCopyTarget = rememberFolderChooser(vm, "Kopieren nach") { dest -> vm.copyFile(entry, dest) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // decorFitsSystemWindows = false: die App bekommt die Maße von Status- und Navigationsleiste
+    // und kann die Bedienleiste sauber darüber platzieren (wichtig bei Android 15 „Edge-to-Edge“).
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
                 TopAppBar(
                     title = { Text(node.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.ArrowBack, "Zurück") } },
