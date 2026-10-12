@@ -321,11 +321,15 @@ fun FoldersScreen(vm: MainViewModel) {
             Spacer(Modifier.height(8.dp))
             SectionTitle("Ablageort")
             Spacer(Modifier.height(4.dp))
-            BaseFolderRow(
-                label = "Sortierte Dateien ablegen in",
-                value = vm.settings.targetBase?.let { vm.folderLabel(it) } ?: "Im jeweiligen Ordner (Unterordner)",
+            Hint("Wohin sortierte Dateien kommen. Ohne Ablageort landen sie in Unterordnern des jeweils aufgeräumten Ordners.")
+        }
+        item {
+            FolderSelector(
+                vm = vm,
+                selected = vm.settings.targetBase,
+                onSelect = { vm.updateSettings(vm.settings.copy(targetBase = it)) },
+                onClear = { vm.updateSettings(vm.settings.copy(targetBase = null)) },
                 onChoose = chooseTargetBase,
-                onReset = if (vm.settings.targetBase != null) ({ vm.updateSettings(vm.settings.copy(targetBase = null)) }) else null,
             )
         }
         item {
@@ -355,23 +359,65 @@ fun FoldersScreen(vm: MainViewModel) {
     }
 }
 
-/** Zeile mit gewähltem Ordner und Knöpfen „Ordner wählen“ / „Zurücksetzen“. */
+/**
+ * Ordnerauswahl im gleichen Stil wie „Ordner zum Aufräumen“:
+ * gewählter Ordner als Karte, Schnellwahl-Chips und „Ordner wählen“.
+ */
 @Composable
-fun BaseFolderRow(label: String, value: String, onChoose: () -> Unit, onReset: (() -> Unit)?) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(label, style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Folder, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+fun FolderSelector(
+    vm: MainViewModel,
+    selected: String?,
+    onSelect: (String) -> Unit,
+    onClear: () -> Unit,
+    onChoose: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (selected != null) {
+            val path = vm.folderLabel(selected)
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(path.substringAfterLast('/'), fontWeight = FontWeight.Medium)
+                        Text(
+                            path,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Filled.Close, contentDescription = "Ablageort entfernen")
+                    }
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onChoose) { Text("Ordner wählen") }
-                if (onReset != null) TextButton(onClick = onReset) { Text("Zurücksetzen") }
+        }
+        if (vm.allFilesAccess) {
+            val available = Docs.commonFolders().filter { (_, dir) -> Uri.fromFile(dir).toString() != selected }
+            if (available.isNotEmpty()) {
+                Column {
+                    Text("Schnell wählen", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        available.forEach { (label, dir) ->
+                            AssistChip(
+                                onClick = { onSelect(Uri.fromFile(dir).toString()) },
+                                label = { Text(label) },
+                                leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)) },
+                            )
+                        }
+                    }
+                }
             }
+        }
+        FilledTonalButton(onClick = onChoose) {
+            Icon(Icons.Filled.Add, null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (selected == null) "Ordner wählen" else "Anderen Ordner wählen")
         }
     }
 }
@@ -427,11 +473,17 @@ fun RulesScreen(vm: MainViewModel) {
             )
         }
         item {
-            BaseFolderRow(
-                label = "Ablageort",
-                value = base?.let { vm.folderLabel(it) } ?: "Im sortierten Ordner (bzw. allgemeiner Ablageort)",
+            Text("Ablageort", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(2.dp))
+            Hint("Optional. Ohne eigenen Ablageort gilt der allgemeine Ablageort bzw. der aufgeräumte Ordner.")
+        }
+        item {
+            FolderSelector(
+                vm = vm,
+                selected = base,
+                onSelect = { base = it },
+                onClear = { base = null },
                 onChoose = chooseBase,
-                onReset = if (base != null) ({ base = null }) else null,
             )
         }
         item {
