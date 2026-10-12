@@ -164,7 +164,13 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, "Leeren") }
                 },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp),
             )
         } else {
             val selFiles = selection.filter { File(it.path!!).isFile }
@@ -337,15 +343,15 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
-                                    .background(if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(if (sel) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                                     .combinedClickable(onClick = { clickItem(e.file, true) }, onLongClick = { selection = selection + u })
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(
-                                    if (sel) Icons.Filled.CheckCircle else Icons.Filled.Folder, null,
-                                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp),
-                                )
+                                if (sel) Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
+                                else IconBadge(Icons.Filled.Folder, MaterialTheme.colorScheme.primary, size = 40.dp, iconSize = 22.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -521,9 +527,11 @@ fun FileRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected) {

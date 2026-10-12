@@ -201,6 +201,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.saveAutoSort(on)
     }
 
+    // ---------- Darstellung ----------
+
+    /** 0 = wie System, 1 = hell, 2 = dunkel */
+    var themeMode by mutableIntStateOf(store.loadThemeMode())
+        private set
+    var dynamicColor by mutableStateOf(store.loadDynamicColor())
+        private set
+
+    fun updateThemeMode(m: Int) { themeMode = m; store.saveThemeMode(m) }
+    fun updateDynamicColor(on: Boolean) { dynamicColor = on; store.saveDynamicColor(on) }
+
     // ---------- App-Sperre ----------
 
     var lockEnabled by mutableStateOf(store.loadLock())
@@ -277,6 +288,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         autoSort = store.loadAutoSort()
         watching = store.loadWatch()
         lockEnabled = store.loadLock()
+        themeMode = store.loadThemeMode()
+        dynamicColor = store.loadDynamicColor()
         undoCount = store.loadUndo().size
         plan = null
         index = null

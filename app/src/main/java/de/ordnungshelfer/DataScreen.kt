@@ -19,6 +19,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Einstellung › Daten: Tags verwalten, Sicherung/Wiederherstellung, App-Sperre. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DataScreen(vm: MainViewModel) {
     val ctx = LocalContext.current
@@ -38,6 +39,27 @@ fun DataScreen(vm: MainViewModel) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // ---------- Darstellung ----------
+        item {
+            SectionTitle("Darstellung")
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf("System", "Hell", "Dunkel").forEachIndexed { i, label ->
+                    SegmentedButton(
+                        selected = vm.themeMode == i,
+                        onClick = { vm.updateThemeMode(i) },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 3),
+                    ) { Text(label) }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            SwitchRow(
+                "Farben vom Hintergrundbild",
+                "Statt der CX-Farben (Navy & Bernstein) die Farben deines Hintergrundbilds verwenden (ab Android 12).",
+                vm.dynamicColor,
+            ) { vm.updateDynamicColor(it) }
+        }
+
         // ---------- App-Sperre ----------
         item {
             SectionTitle("App-Sperre")

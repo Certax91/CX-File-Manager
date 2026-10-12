@@ -41,6 +41,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Date
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.DocumentScanner
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
@@ -52,7 +64,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            AppTheme {
+            AppTheme(mode = vm.themeMode, dynamic = vm.dynamicColor) {
                 if (vm.locked) LockScreen(onUnlock = ::authenticate) else App(vm)
             }
         }
@@ -117,25 +129,12 @@ fun LockScreen(onUnlock: () -> Unit) {
     }
 }
 
-@Composable
-fun AppTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val ctx = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= 31 && dark -> dynamicDarkColorScheme(ctx)
-        Build.VERSION.SDK_INT >= 31 -> dynamicLightColorScheme(ctx)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
-    }
-    MaterialTheme(colorScheme = scheme, content = content)
-}
-
-enum class NavTab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Filled.Home),
-    SEARCH("Suche", Icons.Filled.Search),
-    SCAN("Scan", Icons.Filled.DocumentScanner),
-    TOOLS("Funktionen", Icons.Filled.CleaningServices),
-    SETTINGS("Einstellung", Icons.Filled.Settings),
+enum class NavTab(val label: String, val title: String, val icon: ImageVector, val outlined: ImageVector) {
+    HOME("Home", "Übersicht", Icons.Filled.Home, Icons.Outlined.Home),
+    SEARCH("Suche", "Dateien", Icons.Filled.Search, Icons.Outlined.Search),
+    SCAN("Scan", "Dokument scannen", Icons.Filled.DocumentScanner, Icons.Outlined.DocumentScanner),
+    TOOLS("Funktionen", "Funktionen", Icons.Filled.AutoAwesome, Icons.Outlined.AutoAwesome),
+    SETTINGS("Einstellung", "Einstellungen", Icons.Filled.Settings, Icons.Outlined.Settings),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -157,27 +156,61 @@ fun App(vm: MainViewModel = viewModel()) {
         }
     }
 
+    val openDownload: () -> Unit = {
+        // Link aus der Zwischenablage übernehmen, falls vorhanden
+        downloadUrl = Downloader.findUrl(clipboard.getText()?.text).orEmpty()
+        showDownload = true
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("CX File Manager") },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painterResource(R.mipmap.ic_launcher_foreground), null,
+                            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "CX FILE MANAGER",
+                                style = SmallCaps,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            AnimatedContent(targetState = tab, label = "titel") { t ->
+                                Text(t.title, style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
+                    }
+                },
                 actions = {
-                    IconButton(onClick = {
-                        // Link aus der Zwischenablage übernehmen, falls vorhanden
-                        downloadUrl = Downloader.findUrl(clipboard.getText()?.text).orEmpty()
-                        showDownload = true
-                    }) { Icon(Icons.Filled.Download, "Herunterladen") }
+                    FilledTonalIconButton(onClick = openDownload) { Icon(Icons.Filled.Download, "Herunterladen") }
+                    Spacer(Modifier.width(8.dp))
                 },
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
                 NavTab.entries.forEach { t ->
+                    val selected = tab == t
                     NavigationBarItem(
-                        selected = tab == t,
+                        selected = selected,
                         onClick = { tab = t },
-                        icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(t.label, maxLines = 1, softWrap = false) },
+                        icon = { Icon(if (selected) t.icon else t.outlined, contentDescription = null) },
+                        label = {
+                            Text(
+                                t.label, maxLines = 1, softWrap = false,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        ),
                     )
                 }
             }
@@ -185,12 +218,19 @@ fun App(vm: MainViewModel = viewModel()) {
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                NavTab.HOME -> HomeScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
-                NavTab.SEARCH -> SearchScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
-                NavTab.SCAN -> ScanScreen(vm)
-                NavTab.TOOLS -> ToolsScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
-                NavTab.SETTINGS -> SettingsScreen(vm)
+            Crossfade(targetState = tab, label = "seite") { t ->
+                when (t) {
+                    NavTab.HOME -> HomeScreen(
+                        vm,
+                        onGoToSettings = { tab = NavTab.SETTINGS },
+                        onNavigate = { tab = it },
+                        onDownload = openDownload,
+                    )
+                    NavTab.SEARCH -> SearchScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
+                    NavTab.SCAN -> ScanScreen(vm)
+                    NavTab.TOOLS -> ToolsScreen(vm, onGoToSettings = { tab = NavTab.SETTINGS })
+                    NavTab.SETTINGS -> SettingsScreen(vm)
+                }
             }
             vm.busy?.let { BusyOverlay(it) }
         }
@@ -202,7 +242,7 @@ fun App(vm: MainViewModel = viewModel()) {
 fun SettingsScreen(vm: MainViewModel) {
     var sub by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = sub) {
+        TabRow(selectedTabIndex = sub, containerColor = MaterialTheme.colorScheme.background) {
             Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Allgemein") }, icon = { Icon(Icons.Filled.Settings, null) })
             Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Regeln") }, icon = { Icon(Icons.Filled.Tune, null) })
             Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Daten") }, icon = { Icon(Icons.Filled.Shield, null) })
@@ -222,7 +262,7 @@ fun SettingsScreen(vm: MainViewModel) {
 fun ToolsScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     var sub by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        ScrollableTabRow(selectedTabIndex = sub, edgePadding = 8.dp) {
+        ScrollableTabRow(selectedTabIndex = sub, edgePadding = 8.dp, containerColor = MaterialTheme.colorScheme.background) {
             Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Sortieren") }, icon = { Icon(Icons.Filled.CleaningServices, null) })
             Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Duplikate") }, icon = { Icon(Icons.Filled.ContentCopy, null) })
             Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Speicher") }, icon = { Icon(Icons.Filled.PieChart, null) })
@@ -244,15 +284,15 @@ fun BusyOverlay(text: String) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f))
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f))
             .clickable(enabled = true, onClick = {}),
         contentAlignment = Alignment.Center,
     ) {
-        Card {
-            Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(28.dp))
-                Spacer(Modifier.width(16.dp))
-                Text(text)
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp, shadowElevation = 12.dp) {
+            Column(Modifier.padding(horizontal = 32.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(Modifier.size(44.dp), strokeWidth = 4.dp, strokeCap = androidx.compose.ui.graphics.StrokeCap.Round)
+                Spacer(Modifier.height(16.dp))
+                Text(text, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
@@ -269,23 +309,8 @@ fun Hint(text: String) {
 }
 
 @Composable
-fun EmptyState(icon: ImageVector, title: String, text: String, action: (@Composable () -> Unit)? = null) {
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(icon, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Hint(text)
-        if (action != null) {
-            Spacer(Modifier.height(16.dp))
-            action()
-        }
-    }
-}
+fun EmptyState(icon: ImageVector, title: String, text: String, action: (@Composable () -> Unit)? = null) =
+    ModernEmptyState(icon, title, text, action)
 
 // ======================= Ordner =======================
 

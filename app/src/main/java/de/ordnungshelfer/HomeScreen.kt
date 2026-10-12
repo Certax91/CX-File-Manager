@@ -4,6 +4,14 @@ import android.net.Uri
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -46,7 +54,12 @@ private data class HomeList(val title: String, val entries: List<DupEntry>)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
+fun HomeScreen(
+    vm: MainViewModel,
+    onGoToSettings: () -> Unit,
+    onNavigate: (NavTab) -> Unit = {},
+    onDownload: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf<HomeList?>(null) }
     var editing by remember { mutableStateOf<DupEntry?>(null) }
@@ -72,40 +85,25 @@ fun HomeScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // ---------- Speicher ----------
+            // ---------- Speicher (Hero-Karte) ----------
             item {
                 val (used, total) = remember(library) { Library.storage() }
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.PhoneAndroid, null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Interner Speicher", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { vm.loadLibrary() }, enabled = vm.allFilesAccess && !vm.libraryLoading) {
-                                Icon(Icons.Filled.Refresh, "Aktualisieren")
-                            }
-                        }
-                        if (total > 0) {
-                            LinearProgressIndicator(
-                                progress = { used.toFloat() / total },
-                                modifier = Modifier.fillMaxWidth().height(8.dp),
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "${Formatter.formatShortFileSize(ctx, used)} von ${Formatter.formatShortFileSize(ctx, total)} belegt · " +
-                                    "${Formatter.formatShortFileSize(ctx, total - used)} frei",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (library != null) {
-                            Text(
-                                "${library.size} Dateien",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                StorageHero(
+                    used = used,
+                    total = total,
+                    files = library?.size,
+                    loading = vm.libraryLoading,
+                    onRefresh = { if (vm.allFilesAccess) vm.loadLibrary() },
+                )
+            }
+
+            // ---------- Schnellzugriff ----------
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    QuickAction(Icons.Filled.DocumentScanner, "Scannen", Brand.Orange) { onNavigate(NavTab.SCAN) }
+                    QuickAction(Icons.Filled.FolderOpen, "Dateien", Brand.Blue) { onNavigate(NavTab.SEARCH) }
+                    QuickAction(Icons.Filled.Download, "Download", Brand.Green) { onDownload() }
+                    QuickAction(Icons.Filled.AutoAwesome, "Aufräumen", Brand.Violet) { onNavigate(NavTab.TOOLS) }
                 }
             }
 
@@ -190,7 +188,7 @@ fun HomeScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                     }
                 }
                 items(library.take(8), key = { "recent_" + it.node.uri }) { e ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 1.dp) {
                         FileRow(
                             vm = vm,
                             name = e.node.name,
@@ -245,7 +243,7 @@ private fun HomeListScreen(vm: MainViewModel, list: HomeList, onBack: () -> Unit
 @Composable
 private fun SectionHeader(title: String, action: String?, onAction: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         if (action != null) TextButton(onClick = onAction) { Text(action) }
     }
     Spacer(Modifier.height(4.dp))
@@ -253,26 +251,100 @@ private fun SectionHeader(title: String, action: String?, onAction: () -> Unit) 
 
 @Composable
 private fun CategoryTile(name: String, icon: ImageVector, color: Color, count: Int, modifier: Modifier, onClick: () -> Unit) {
-    Card(modifier.clickable(onClick = onClick)) {
-        Column(
-            Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.height(6.dp))
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            IconBadge(icon, color, size = 48.dp, iconSize = 26.dp)
+            Spacer(Modifier.height(8.dp))
             Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             Text("$count", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
+/** Runde Schnellzugriffs-Schaltfläche mit Beschriftung. */
+@Composable
+private fun QuickAction(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) {
+        Surface(
+            onClick = onClick,
+            shape = MaterialTheme.shapes.large,
+            color = color.copy(alpha = 0.14f),
+            modifier = Modifier.size(60.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) { Icon(icon, label, tint = color, modifier = Modifier.size(28.dp)) }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+    }
+}
+
+/** Kopf der Home-Seite: Farbverlauf in Markenfarben mit Speicherring. */
+@Composable
+private fun StorageHero(used: Long, total: Long, files: Int?, loading: Boolean, onRefresh: () -> Unit) {
+    val ctx = LocalContext.current
+    val fraction = if (total > 0) used.toFloat() / total else 0f
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.extraLarge)
+            .background(Brush.linearGradient(listOf(Brand.Navy, Brand.NavyLight)))
+            .padding(20.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 12.dp.toPx()
+                    val inset = stroke / 2
+                    val arcSize = Size(size.width - stroke, size.height - stroke)
+                    drawArc(Color.White.copy(alpha = 0.15f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+                    drawArc(
+                        Brush.sweepGradient(listOf(Brand.Amber, Brand.Orange, Brand.Amber)),
+                        -90f, 360f * fraction, false, Offset(inset, inset), arcSize,
+                        style = Stroke(stroke, cap = StrokeCap.Round),
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${(fraction * 100).toInt()} %", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                    Text("belegt", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.width(20.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Interner Speicher", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${Formatter.formatShortFileSize(ctx, total - used)} frei",
+                    color = Brand.Amber, style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    "${Formatter.formatShortFileSize(ctx, used)} von ${Formatter.formatShortFileSize(ctx, total)}",
+                    color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+                )
+                if (files != null) {
+                    Text("$files Dateien", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        IconButton(onClick = onRefresh, modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)) {
+            if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+            else Icon(Icons.Filled.Refresh, "Aktualisieren", tint = Color.White.copy(alpha = 0.8f))
+        }
+    }
+}
+
 @Composable
 private fun MiniFileCard(e: DupEntry, onClick: () -> Unit) {
-    Card(Modifier.width(120.dp).clickable(onClick = onClick)) {
+    Surface(onClick = onClick, modifier = Modifier.width(120.dp), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 1.dp) {
         Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box {
-                Icon(iconFor(e.node.name), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.secondary)
-                Icon(Icons.Filled.Star, null, Modifier.size(14.dp).align(Alignment.TopEnd), tint = Color(0xFFF5B400))
+                FileThumb(e.node.uri, e.node.name, 72.dp)
+                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = Color(0xFFF5B400))
             }
             Spacer(Modifier.height(6.dp))
             Text(e.node.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)

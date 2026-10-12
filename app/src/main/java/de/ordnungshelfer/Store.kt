@@ -190,6 +190,11 @@ class Store(context: Context) {
     fun loadAutoSort(): Boolean = prefs.getBoolean("watchAutoSort", false)
     fun saveAutoSort(on: Boolean) { prefs.edit().putBoolean("watchAutoSort", on).apply() }
 
+    fun loadThemeMode(): Int = prefs.getInt("themeMode", 0)
+    fun saveThemeMode(m: Int) { prefs.edit().putInt("themeMode", m).apply() }
+    fun loadDynamicColor(): Boolean = prefs.getBoolean("dynamicColor", false)
+    fun saveDynamicColor(on: Boolean) { prefs.edit().putBoolean("dynamicColor", on).apply() }
+
     fun loadLock(): Boolean = prefs.getBoolean("appLock", false)
     fun saveLock(on: Boolean) { prefs.edit().putBoolean("appLock", on).apply() }
 

@@ -111,9 +111,9 @@ fun ScanScreen(vm: MainViewModel) {
                     Modifier.fillMaxWidth().padding(top = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(Icons.Filled.DocumentScanner, null, Modifier.size(96.dp), tint = MaterialTheme.colorScheme.primary)
+                    IconBadge(Icons.Filled.DocumentScanner, MaterialTheme.colorScheme.primary, size = 132.dp, iconSize = 64.dp)
                     Spacer(Modifier.height(16.dp))
-                    Text("Dokument scannen", style = MaterialTheme.typography.titleLarge)
+                    Text("Dokument scannen", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(8.dp))
                     Hint("Fotografiere ein oder mehrere Seiten. Ränder werden automatisch erkannt und begradigt, " +
                         "daraus entsteht ein PDF, das du direkt benennst und ablegst.")
