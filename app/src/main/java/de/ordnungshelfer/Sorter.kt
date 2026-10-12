@@ -199,20 +199,27 @@ object Sorter {
     }
 
     /** Alle Dateien der Ordner (inkl. Unterordner) – für die Suche. */
-    fun listAll(ctx: Context, folders: List<Pair<String, String>>): List<DupEntry> {
+    fun listAll(ctx: Context, folders: List<Pair<String, String>>, progress: (Int) -> Unit = {}): List<DupEntry> {
         val out = mutableListOf<DupEntry>()
         for ((stored, name) in folders) {
             val root = Docs.rootDoc(Uri.parse(stored))
-            collect(ctx, root, root, name, out)
+            collect(ctx, root, root, name, out, progress)
         }
         return out.distinctBy { it.node.uri.toString() }
     }
 
-    private fun collect(ctx: Context, root: Uri, dir: Uri, path: String, out: MutableList<DupEntry>) {
+    private fun collect(
+        ctx: Context, root: Uri, dir: Uri, path: String, out: MutableList<DupEntry>,
+        progress: (Int) -> Unit = {},
+    ) {
         for (n in Docs.children(ctx, dir)) {
             if (n.name.startsWith(".") || n.name == "Android") continue
-            if (n.isDir) collect(ctx, root, n.uri, "$path/${n.name}", out)
-            else out += DupEntry(n, path, dir, root)
+            if (n.isDir) {
+                collect(ctx, root, n.uri, "$path/${n.name}", out, progress)
+            } else {
+                out += DupEntry(n, path, dir, root)
+                if (out.size % 500 == 0) progress(out.size)
+            }
         }
     }
 

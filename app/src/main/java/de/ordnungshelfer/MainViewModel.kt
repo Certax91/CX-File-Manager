@@ -50,6 +50,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var allFilesAccess by mutableStateOf(Docs.hasAllFilesAccess(app))
         private set
+    /** Ordner für die Suche (leer = Standard) */
+    var searchFolders by mutableStateOf(store.loadSearchFolders())
+        private set
     var watching by mutableStateOf(store.loadWatch())
         private set
     var busy by mutableStateOf<String?>(null)
@@ -348,15 +351,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Liest alle Dateien der Ordner und Ablageorte ein, plus alle getaggten Dateien. */
     fun buildIndex() = work("Lese Dateien ein …") {
         withContext(Dispatchers.Main) { resolvePendingDownloads() }
-        val bases = (rules.mapNotNull { it.targetBase } + listOfNotNull(settings.targetBase))
-            .filter { allFilesAccess || !it.startsWith("file:") }
-        val folders = (usableRoots + bases).distinct().map { it to (rootNames[it] ?: Docs.prettyFolder(it).substringAfterLast('/')) }
-        val all = Sorter.listAll(ctx, folders).toMutableList()
+        val custom = searchFolders.isNotEmpty()
+        val chosen = if (custom) searchFolders else {
+            val bases = rules.mapNotNull { it.targetBase } + listOfNotNull(settings.targetBase)
+            usableRoots + bases
+        }
+        val folders = chosen.filter { allFilesAccess || !it.startsWith("file:") }.distinct()
+            .map { it to (rootNames[it] ?: Docs.prettyFolder(it).substringAfterLast('/')) }
+        val all = Sorter.listAll(ctx, folders) { n ->
+            busy = "Lese Dateien ein … ($n)"
+        }.toMutableList()
         val known = all.map { it.node.uri.toString() }.toMutableSet()
         // Getaggte Dateien außerhalb dieser Ordner trotzdem finden
         val trashed = trash.map { it.uri }.toSet()
         val stale = mutableListOf<String>()
         for (key in tags.keys) {
+            if (custom) break // bei eigener Ordnerauswahl nur diese Ordner zeigen
             if (key in known || key in trashed) continue
             val uri = Uri.parse(key)
             val node = Docs.nodeOf(ctx, uri)
@@ -371,6 +381,46 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             index = all.sortedByDescending { it.node.modified }
         }
+    }
+
+    fun addSearchFolder(stored: String) {
+        if (stored in searchFolders) return
+        // War „Ganzer Speicher“ aktiv, gilt ab jetzt nur der gewählte Ordner
+        searchFolders = if (searchesWholeStorage) listOf(stored) else searchFolders + stored
+        store.saveSearchFolders(searchFolders)
+        buildIndexAfterScopeChange()
+    }
+
+    fun removeSearchFolder(stored: String) {
+        searchFolders = searchFolders - stored
+        store.saveSearchFolders(searchFolders)
+        buildIndexAfterScopeChange()
+    }
+
+    /** Ganzen Speicher durchsuchen (interner Speicher + ggf. SD-Karte). */
+    fun searchWholeStorage() {
+        if (!allFilesAccess) {
+            message = "Dafür braucht die App „Zugriff auf alle Dateien“ (Reiter „Ordner“)"
+            return
+        }
+        searchFolders = Docs.storageRoots(ctx).map { Uri.fromFile(it.second).toString() }
+        store.saveSearchFolders(searchFolders)
+        buildIndexAfterScopeChange()
+    }
+
+    fun resetSearchFolders() {
+        searchFolders = emptyList()
+        store.saveSearchFolders(searchFolders)
+        buildIndexAfterScopeChange()
+    }
+
+    val searchesWholeStorage: Boolean
+        get() = searchFolders.isNotEmpty() &&
+            searchFolders.toSet() == Docs.storageRoots(ctx).map { Uri.fromFile(it.second).toString() }.toSet()
+
+    private fun buildIndexAfterScopeChange() {
+        index = null
+        buildIndex()
     }
 
     /** Alle vergebenen Tags, die häufigsten zuerst. */

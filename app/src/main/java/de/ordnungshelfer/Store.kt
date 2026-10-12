@@ -150,6 +150,13 @@ class Store(context: Context) {
         prefs.edit().putString("pendingDl", o.toString()).apply()
     }
 
+    /** Ordner, die die Suche durchsucht. Leer = Standard (Ordner zum Aufräumen + Ablageorte). */
+    fun loadSearchFolders(): List<String> = readArray("searchFolders") { a, i -> a.getString(i) }
+
+    fun saveSearchFolders(f: List<String>) {
+        prefs.edit().putString("searchFolders", JSONArray(f).toString()).apply()
+    }
+
     fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
 
     fun saveWatch(on: Boolean) {

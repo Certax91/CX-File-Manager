@@ -190,17 +190,12 @@ fun DownloadDialog(vm: MainViewModel, initialUrl: String?, stream: Uri?, onClose
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                val suggestions = vm.allTags.filter { t -> parseTags(tagText).none { it.equals(t, true) } }
-                if (suggestions.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        suggestions.take(10).forEach { t ->
-                            SuggestionChip(
-                                onClick = { tagText = (parseTags(tagText) + t).joinToString(", ") },
-                                label = { Text("#$t") },
-                            )
-                        }
-                    }
-                }
+                TagAutocomplete(
+                    typed = currentTagToken(tagText),
+                    allTags = vm.allTags,
+                    exclude = parseTags(tagText.substringBeforeLast(',', "")),
+                    onPick = { tagText = completeTagList(tagText, it) },
+                )
             }
         },
         confirmButton = {
@@ -280,14 +275,12 @@ fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    val suggestions = vm.allTags.filter { t -> parseTags(tagText).none { it.equals(t, true) } }
-                    if (suggestions.isNotEmpty()) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            suggestions.take(10).forEach { t ->
-                                SuggestionChip(onClick = { tagText = (parseTags(tagText) + t).joinToString(", ") }, label = { Text("#$t") })
-                            }
-                        }
-                    }
+                    TagAutocomplete(
+                        typed = currentTagToken(tagText),
+                        allTags = vm.allTags,
+                        exclude = parseTags(tagText.substringBeforeLast(',', "")),
+                        onPick = { tagText = completeTagList(tagText, it) },
+                    )
                 }
             }
         },

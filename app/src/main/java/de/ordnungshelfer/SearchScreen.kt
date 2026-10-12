@@ -39,9 +39,11 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
     var selection by remember { mutableStateOf<Set<Uri>>(emptySet()) }
     var editing by remember { mutableStateOf<DupEntry?>(null) }
     var bulkTag by remember { mutableStateOf(false) }
+    val chooseSearchFolder = rememberFolderChooser(vm, "Ordner durchsuchen") { vm.addSearchFolder(it) }
+    val hasScope = vm.roots.isNotEmpty() || vm.searchFolders.isNotEmpty()
 
     LaunchedEffect(Unit) {
-        if (vm.index == null && vm.roots.isNotEmpty()) vm.buildIndex()
+        if (vm.index == null && hasScope) vm.buildIndex()
     }
     BackHandler(enabled = selection.isNotEmpty()) { selection = emptySet() }
 
@@ -71,7 +73,7 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = vm::buildIndex, enabled = vm.roots.isNotEmpty()) {
+                IconButton(onClick = vm::buildIndex, enabled = hasScope) {
                     Icon(Icons.Filled.Refresh, "Neu einlesen")
                 }
             }
@@ -91,6 +93,8 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
             }
         }
 
+        if (selection.isEmpty()) SearchScope(vm, onAdd = chooseSearchFolder)
+
         val allTags = vm.allTags
         if (allTags.isNotEmpty()) {
             Row(
@@ -109,9 +113,9 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
         }
 
         when {
-            vm.roots.isEmpty() && index.isNullOrEmpty() -> EmptyState(
+            !hasScope && index.isNullOrEmpty() -> EmptyState(
                 Icons.Filled.FolderOpen, "Noch kein Ordner gewählt",
-                "Füge zuerst einen Ordner hinzu – dann kannst du hier Dateien suchen und mit Tags versehen.",
+                "Wähle oben „Ordner“ oder „Ganzer Speicher“, um Dateien zu suchen und mit Tags zu versehen.",
             ) { FilledTonalButton(onClick = onGoToFolders) { Text("Ordner wählen") } }
 
             index == null -> EmptyState(
@@ -208,7 +212,6 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
 internal fun TagEditDialog(vm: MainViewModel, entry: DupEntry, onOpen: () -> Unit, onDismiss: () -> Unit) {
     val current = vm.tagsOf(entry.node.uri)
     var input by remember { mutableStateOf("") }
-    val suggestions = vm.allTags.filter { s -> current.none { it.equals(s, ignoreCase = true) } }
 
     fun add(text: String) {
         val new = parseTags(text)
@@ -246,14 +249,7 @@ internal fun TagEditDialog(vm: MainViewModel, entry: DupEntry, onOpen: () -> Uni
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (suggestions.isNotEmpty()) {
-                    Text("Vorhandene Tags", style = MaterialTheme.typography.labelMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        suggestions.take(15).forEach { t ->
-                            SuggestionChip(onClick = { add(t) }, label = { Text("#$t") })
-                        }
-                    }
-                }
+                TagAutocomplete(typed = input, allTags = vm.allTags, exclude = current, onPick = { add(it) })
             }
         },
         confirmButton = {
@@ -285,13 +281,7 @@ private fun TagInputDialog(title: String, suggestions: List<String>, onConfirm: 
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (suggestions.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        suggestions.take(15).forEach { t ->
-                            SuggestionChip(onClick = { onConfirm(t) }, label = { Text("#$t") })
-                        }
-                    }
-                }
+                TagAutocomplete(typed = input, allTags = suggestions, exclude = emptyList(), onPick = { onConfirm(it) })
             }
         },
         confirmButton = {
@@ -328,5 +318,46 @@ fun openFile(ctx: Context, node: Node, onError: (String) -> Unit) {
         onError("Keine App zum Öffnen von „${node.name}“ gefunden")
     } catch (e: Exception) {
         onError("Datei konnte nicht geöffnet werden")
+    }
+}
+
+/** Welche Ordner durchsucht werden: Chips zum Entfernen, „+ Ordner“, „Ganzer Speicher“, „Standard“. */
+@Composable
+private fun SearchScope(vm: MainViewModel, onAdd: () -> Unit) {
+    val custom = vm.searchFolders.isNotEmpty()
+    val whole = vm.searchesWholeStorage
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.FolderOpen, "Durchsuchte Ordner", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        FilterChip(
+            selected = !custom,
+            onClick = { if (custom) vm.resetSearchFolders() },
+            label = { Text("Meine Ordner") },
+        )
+        FilterChip(
+            selected = whole,
+            onClick = { if (!whole) vm.searchWholeStorage() },
+            label = { Text("Ganzer Speicher") },
+            leadingIcon = { Icon(Icons.Filled.PhoneAndroid, null, Modifier.size(18.dp)) },
+        )
+        if (custom && !whole) {
+            vm.searchFolders.forEach { f ->
+                InputChip(
+                    selected = true,
+                    onClick = { vm.removeSearchFolder(f) },
+                    label = { Text(Docs.prettyFolder(f).substringAfterLast('/'), maxLines = 1) },
+                    leadingIcon = { Icon(Icons.Filled.Folder, null, Modifier.size(18.dp)) },
+                    trailingIcon = { Icon(Icons.Filled.Close, "Entfernen", Modifier.size(16.dp)) },
+                )
+            }
+        }
+        AssistChip(
+            onClick = onAdd,
+            label = { Text(if (custom && !whole) "Ordner" else "Ordner wählen") },
+            leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)) },
+        )
     }
 }

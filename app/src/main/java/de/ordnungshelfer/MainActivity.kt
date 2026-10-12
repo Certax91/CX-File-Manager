@@ -502,6 +502,14 @@ fun RulesScreen(vm: MainViewModel) {
             )
         }
         item {
+            TagAutocomplete(
+                typed = currentTagToken(tagText),
+                allTags = vm.allTags,
+                exclude = parseTags(tagText.substringBeforeLast(',', "")),
+                onPick = { tagText = completeTagList(tagText, it) },
+            )
+        }
+        item {
             Button(
                 onClick = {
                     vm.addRule(field, pattern, target, base, parseTags(tagText))
