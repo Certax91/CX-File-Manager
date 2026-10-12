@@ -150,6 +150,12 @@ class Store(context: Context) {
         prefs.edit().putString("pendingDl", o.toString()).apply()
     }
 
+    fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
+
+    fun saveWatch(on: Boolean) {
+        prefs.edit().putBoolean("watchDownloads", on).apply()
+    }
+
     private fun <T> readArray(key: String, read: (JSONArray, Int) -> T): List<T> {
         val raw = prefs.getString(key, null) ?: return emptyList()
         return runCatching {

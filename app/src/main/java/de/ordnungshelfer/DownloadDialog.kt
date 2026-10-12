@@ -49,6 +49,11 @@ class ReceiveActivity : ComponentActivity() {
             }
         }
         val url = if (stream == null) Downloader.findUrl(text) else null
+        // Aus der Benachrichtigung „Neu im Download“
+        val watched = i?.getStringExtra(WatchService.EXTRA_PATH)?.let { java.io.File(it) }
+        if (watched != null) {
+            androidx.core.app.NotificationManagerCompat.from(this).cancel(WatchService.notificationId(watched.absolutePath))
+        }
 
         setContent {
             AppTheme {
@@ -59,7 +64,9 @@ class ReceiveActivity : ComponentActivity() {
                         vm.message = null
                     }
                 }
-                if (stream == null && url == null) {
+                if (watched != null) {
+                    NewFileDialog(vm, watched, onClose = { finish() })
+                } else if (stream == null && url == null) {
                     AlertDialog(
                         onDismissRequest = { finish() },
                         title = { Text("Nichts zum Speichern") },
@@ -221,4 +228,81 @@ fun DownloadDialog(vm: MainViewModel, initialUrl: String?, stream: Uri?, onClose
 private fun selectBaseName(name: String): TextFieldValue {
     val dot = name.lastIndexOf('.')
     return TextFieldValue(name, TextRange(0, if (dot > 0) dot else name.length))
+}
+
+/** Neue Datei im Download-Ordner: Name ändern, optional verschieben und Tags vergeben. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit) {
+    if (!file.exists()) {
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text("Nicht mehr vorhanden") },
+            text = { Text("„${file.name}“ wurde inzwischen verschoben oder gelöscht.") },
+            confirmButton = { TextButton(onClick = onClose) { Text("OK") } },
+        )
+        return
+    }
+    var name by remember { mutableStateOf(if (file.isDirectory) TextFieldValue(file.name, TextRange(0, file.name.length)) else selectBaseName(file.name)) }
+    var dest by remember { mutableStateOf<String?>(null) }
+    var tagText by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    val chooseDest = rememberFolderChooser(vm, "Verschieben nach") { dest = it }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        icon = { Icon(if (file.isDirectory) Icons.Filled.CreateNewFolder else Icons.Filled.DriveFileRenameOutline, null) },
+        title = { Text(if (file.isDirectory) "Neuer Ordner im Download" else "Neu im Download") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Speicherort", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Folder, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(dest?.let { vm.folderLabel(it) } ?: "Download (bleibt hier)", Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = chooseDest) { Text("Verschieben nach …") }
+                    if (dest != null) TextButton(onClick = { dest = null }) { Text("Hier lassen") }
+                }
+                if (!file.isDirectory) {
+                    OutlinedTextField(
+                        value = tagText,
+                        onValueChange = { tagText = it },
+                        label = { Text("Tags (optional, mit Komma trennen)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val suggestions = vm.allTags.filter { t -> parseTags(tagText).none { it.equals(t, true) } }
+                    if (suggestions.isNotEmpty()) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            suggestions.take(10).forEach { t ->
+                                SuggestionChip(onClick = { tagText = (parseTags(tagText) + t).joinToString(", ") }, label = { Text("#$t") })
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !saving && name.text.isNotBlank(),
+                onClick = {
+                    saving = true
+                    vm.processNewFile(file, name.text, dest, parseTags(tagText)) { ok ->
+                        saving = false
+                        if (ok) onClose()
+                    }
+                },
+            ) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Abbrechen") } },
+    )
 }

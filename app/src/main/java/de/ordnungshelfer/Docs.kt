@@ -135,6 +135,7 @@ object Docs {
             }
             current = if (isFile(current)) {
                 val d = File(f(current), seg)
+                WatchState.ignore(d.absolutePath)
                 if (!d.isDirectory && !d.mkdir()) return null
                 Uri.fromFile(d)
             } else {
@@ -179,6 +180,7 @@ object Docs {
         // Aus einem freigegebenen Ordner (content://) in einen direkten Pfad (file://): kopieren, dann löschen
         if (isFile(toParent)) {
             val dest = File(f(toParent), finalName)
+            WatchState.ignore(dest.absolutePath)
             val copied = runCatching {
                 ctx.contentResolver.openInputStream(file)!!.use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }
@@ -220,6 +222,7 @@ object Docs {
         if (!src.exists() || !destDir.isDirectory) return null
         val existing = destDir.list()?.toSet() ?: emptySet()
         val dest = File(destDir, uniqueName(desiredName, existing))
+        WatchState.ignore(dest.absolutePath)
         val ok = src.renameTo(dest) || try {
             src.copyTo(dest)
             if (src.delete()) true else { dest.delete(); false }
@@ -291,6 +294,7 @@ object Docs {
         if (isFile(uri)) {
             val src = f(uri)
             val dest = File(src.parentFile, newName)
+            WatchState.ignore(dest.absolutePath)
             if (dest.exists() || !src.renameTo(dest)) return null
             scan(ctx, src.absolutePath, dest.absolutePath)
             return Uri.fromFile(dest)
@@ -305,6 +309,7 @@ object Docs {
         val finalName = uniqueName(name, children(ctx, toParent).map { it.name }.toSet())
         if (isFile(toParent)) {
             val dest = File(f(toParent), finalName)
+            WatchState.ignore(dest.absolutePath)
             val ok = runCatching {
                 ctx.contentResolver.openInputStream(file)!!.use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }

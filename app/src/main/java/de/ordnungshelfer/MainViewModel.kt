@@ -50,6 +50,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var allFilesAccess by mutableStateOf(Docs.hasAllFilesAccess(app))
         private set
+    var watching by mutableStateOf(store.loadWatch())
+        private set
     var busy by mutableStateOf<String?>(null)
         private set
     var message by mutableStateOf<String?>(null)
@@ -71,6 +73,59 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         allFilesAccess = Docs.hasAllFilesAccess(ctx)
         refreshNames()
         resolvePendingDownloads()
+        // Tags können außerhalb der App geändert worden sein (Umbenennen aus der Benachrichtigung)
+        tags = store.loadTags()
+        if (watching && allFilesAccess && !WatchState.running) WatchService.start(ctx)
+    }
+
+    /** Neue Datei aus der Überwachung: umbenennen, ggf. verschieben, Tags vergeben – in einem Schritt. */
+    fun processNewFile(file: File, wanted: String, dest: String?, newTags: List<String>, onDone: (Boolean) -> Unit) {
+        val name = if (file.isDirectory) wanted.trim().replace('/', '_') else fixFileName(wanted, file.name)
+        if (name.isEmpty()) { message = "Bitte einen Namen eingeben"; return }
+        work("Speichere …") {
+            val original = Uri.fromFile(file)
+            var current = original // wo die Datei gerade liegt
+            var ok = true
+            if (name != file.name) {
+                val r = Docs.rename(ctx, current, name)
+                if (r != null) current = r else ok = false
+            }
+            if (ok && dest != null) {
+                val destUri = Docs.rootDoc(Uri.parse(dest))
+                val src = File(current.path!!)
+                val moved = if (src.isDirectory) {
+                    // Ordner nur zwischen direkten Pfaden verschiebbar
+                    val target = File(destUri.path ?: "", src.name)
+                    if (Docs.isFile(destUri) && !target.exists() && src.renameTo(target)) Uri.fromFile(target) else null
+                } else {
+                    val node = Docs.nodeOf(ctx, current)
+                    val parent = Docs.parentOf(current)
+                    if (node != null && parent != null) Docs.move(ctx, current, node.name, node.mime, parent, destUri, node.name) else null
+                }
+                if (moved != null) current = moved else ok = false
+            }
+            withContext(Dispatchers.Main) {
+                // Tags (vorhandene + neue) hängen an der Datei an ihrem neuen Platz
+                val combined = normalizeTags(tags[original.toString()].orEmpty() + newTags)
+                tags = (tags - original.toString()).let { if (combined.isEmpty()) it else it + (current.toString() to combined) }
+                store.saveTags(tags)
+                index = null
+                message = if (ok) "Gespeichert: ${Docs.displayName(ctx, current) ?: name}"
+                else "Nicht alles hat geklappt – gibt es den Namen am Ziel schon?"
+                onDone(ok)
+            }
+        }
+    }
+
+    /** Überwachung des Download-Ordners ein-/ausschalten. */
+    fun setWatch(on: Boolean) {
+        if (on && !allFilesAccess) {
+            message = "Bitte zuerst „Zugriff auf alle Dateien“ erlauben"
+            return
+        }
+        watching = on
+        store.saveWatch(on)
+        if (on) WatchService.start(ctx) else WatchService.stop(ctx)
     }
 
     /** Ordner, auf die die App gerade zugreifen kann (file://-Ordner nur mit „Zugriff auf alle Dateien“). */
@@ -449,6 +504,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val name = fixFileName(wanted, original)
         if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return false }
         return try {
+            val sub = subfolder.split('/').map { it.trim() }.filter { it.isNotEmpty() }
+            // Selbst gestartete Downloads nicht noch einmal als „neu“ melden
+            val top = sub.firstOrNull() ?: name
+            WatchState.ignore(File(Downloader.downloadDir(), top).absolutePath, 30 * 60_000L)
             val id = Downloader.enqueue(ctx, url, name, subfolder, mime)
             if (newTags.isNotEmpty()) store.savePendingDownloads(store.loadPendingDownloads() + (id to normalizeTags(newTags)))
             message = "Download gestartet: $name"

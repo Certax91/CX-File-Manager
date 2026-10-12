@@ -209,6 +209,10 @@ fun FoldersScreen(vm: MainViewModel) {
         }
     }
 
+    // Ab Android 13: Erlaubnis für Benachrichtigungen, bevor die Überwachung startet
+    val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.setWatch(true) else vm.message = "Ohne Benachrichtigungen kann die App keine neuen Dateien melden"
+    }
     val chooseTargetBase = rememberFolderChooser(vm, "Ablageort wählen") {
         vm.updateSettings(vm.settings.copy(targetBase = it))
     }
@@ -293,6 +297,24 @@ fun FoldersScreen(vm: MainViewModel) {
                 Icon(Icons.Filled.Add, null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (vm.allFilesAccess) "Anderen Ordner wählen" else "Ordner hinzufügen")
+            }
+        }
+        item {
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("Download-Ordner überwachen")
+            Spacer(Modifier.height(4.dp))
+            SwitchRow(
+                "Neue Dateien melden",
+                if (vm.allFilesAccess) "Landet etwas Neues im Download-Ordner, kannst du es direkt aus der Benachrichtigung umbenennen. " +
+                    "Solange die Überwachung läuft, steht eine kleine Benachrichtigung in der Leiste."
+                else "Dafür braucht die App „Zugriff auf alle Dateien“ (siehe oben).",
+                vm.watching,
+            ) { on ->
+                if (on && Build.VERSION.SDK_INT >= 33 && !WatchService.canNotify(ctx)) {
+                    notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    vm.setWatch(on)
+                }
             }
         }
         item {
