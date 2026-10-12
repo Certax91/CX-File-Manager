@@ -12,8 +12,8 @@ android {
         applicationId = "de.ordnungshelfer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "2.1-beta"
+        versionCode = 13
+        versionName = "2.1"
     }
 
     // Fester Schlüssel, damit neue Versionen über die alte installiert werden können
@@ -52,6 +52,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // App-Sperre mit Fingerabdruck / Displaysperre
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
     // Dokumentenscanner (Kantenerkennung, Zuschneiden, PDF) über Google Play-Dienste
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     // Texterkennung (auf dem Gerät) für gescannte Dokumente

@@ -190,6 +190,56 @@ class Store(context: Context) {
     fun loadAutoSort(): Boolean = prefs.getBoolean("watchAutoSort", false)
     fun saveAutoSort(on: Boolean) { prefs.edit().putBoolean("watchAutoSort", on).apply() }
 
+    fun loadLock(): Boolean = prefs.getBoolean("appLock", false)
+    fun saveLock(on: Boolean) { prefs.edit().putBoolean("appLock", on).apply() }
+
+    /** Alle Einstellungen, Regeln, Tags, Favoriten usw. als JSON (Sicherung). */
+    fun exportJson(): String {
+        val data = JSONObject()
+        prefs.all.forEach { (k, v) ->
+            val e = JSONObject()
+            when (v) {
+                is String -> e.put("t", "s").put("v", v)
+                is Boolean -> e.put("t", "b").put("v", v)
+                is Int -> e.put("t", "i").put("v", v)
+                is Long -> e.put("t", "l").put("v", v)
+                is Float -> e.put("t", "f").put("v", v.toDouble())
+                is Set<*> -> e.put("t", "set").put("v", JSONArray(v.map { it.toString() }))
+                else -> return@forEach
+            }
+            data.put(k, e)
+        }
+        return JSONObject()
+            .put("app", "CX File Manager")
+            .put("version", 1)
+            .put("created", System.currentTimeMillis())
+            .put("data", data)
+            .toString(2)
+    }
+
+    /** Sicherung zurückspielen – ersetzt alle aktuellen Daten. Liefert false bei ungültiger Datei. */
+    fun importJson(json: String): Boolean {
+        val root = runCatching { JSONObject(json) }.getOrNull() ?: return false
+        if (root.optString("app") != "CX File Manager") return false
+        val data = root.optJSONObject("data") ?: return false
+        val ed = prefs.edit().clear()
+        data.keys().forEach { k ->
+            val e = data.getJSONObject(k)
+            when (e.optString("t")) {
+                "s" -> ed.putString(k, e.getString("v"))
+                "b" -> ed.putBoolean(k, e.getBoolean("v"))
+                "i" -> ed.putInt(k, e.getInt("v"))
+                "l" -> ed.putLong(k, e.getLong("v"))
+                "f" -> ed.putFloat(k, e.getDouble("v").toFloat())
+                "set" -> {
+                    val a = e.getJSONArray("v")
+                    ed.putStringSet(k, List(a.length()) { a.getString(it) }.toSet())
+                }
+            }
+        }
+        return ed.commit()
+    }
+
     fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
 
     fun saveWatch(on: Boolean) {

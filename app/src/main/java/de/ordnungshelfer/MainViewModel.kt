@@ -201,6 +201,90 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.saveAutoSort(on)
     }
 
+    // ---------- App-Sperre ----------
+
+    var lockEnabled by mutableStateOf(store.loadLock())
+        private set
+    /** App ist gesperrt, bis Fingerabdruck/Displaysperre bestätigt wurde. */
+    var locked by mutableStateOf(store.loadLock())
+        private set
+    private var backgroundSince = 0L
+
+    fun setLock(on: Boolean) {
+        lockEnabled = on
+        store.saveLock(on)
+        message = if (on) "App-Sperre eingeschaltet" else "App-Sperre ausgeschaltet"
+    }
+
+    fun unlocked() { locked = false }
+    fun onBackground() { backgroundSince = System.currentTimeMillis() }
+
+    /** Nach mehr als 2 Minuten im Hintergrund wieder sperren. */
+    fun onForeground() {
+        if (lockEnabled && backgroundSince > 0 && System.currentTimeMillis() - backgroundSince > 2 * 60_000) locked = true
+        backgroundSince = 0
+    }
+
+    // ---------- Tags verwalten ----------
+
+    fun renameTag(old: String, wanted: String) {
+        val new = normalizeTags(listOf(wanted)).firstOrNull() ?: return
+        tags = tags.mapValues { (_, list) -> normalizeTags(list.map { if (it.equals(old, true)) new else it }) }
+        store.saveTags(tags)
+        rules = rules.map { r -> r.copy(tags = normalizeTags(r.tags.map { if (it.equals(old, true)) new else it })) }
+        store.saveRules(rules)
+        message = "Tag „$old“ heißt jetzt „$new“"
+    }
+
+    fun deleteTag(t: String) {
+        tags = tags.mapValues { (_, list) -> list.filterNot { it.equals(t, true) } }.filterValues { it.isNotEmpty() }
+        store.saveTags(tags)
+        rules = rules.map { r -> r.copy(tags = r.tags.filterNot { it.equals(t, true) }) }
+        store.saveRules(rules)
+        message = "Tag „$t“ gelöscht"
+    }
+
+    // ---------- Sicherung ----------
+
+    fun exportBackup(target: Uri) = work("Erstelle Sicherung …") {
+        val ok = runCatching {
+            ctx.contentResolver.openOutputStream(target, "wt")!!.use { it.write(store.exportJson().toByteArray()) }
+        }.isSuccess
+        withContext(Dispatchers.Main) { message = if (ok) "Sicherung gespeichert" else "Sicherung fehlgeschlagen" }
+    }
+
+    fun importBackup(source: Uri) = work("Spiele Sicherung ein …") {
+        val json = runCatching { ctx.contentResolver.openInputStream(source)!!.use { it.readBytes().decodeToString() } }.getOrNull()
+        val ok = json != null && store.importJson(json)
+        withContext(Dispatchers.Main) {
+            if (ok) reloadAll()
+            message = if (ok) "Sicherung wiederhergestellt" else "Keine gültige Sicherung von CX File Manager"
+        }
+    }
+
+    /** Nach dem Wiederherstellen: alle Werte neu aus dem Speicher lesen. */
+    private fun reloadAll() {
+        roots = store.loadRoots()
+        rules = store.loadRules()
+        settings = store.loadSettings()
+        trash = store.loadTrash()
+        tags = store.loadTags()
+        favorites = store.loadFavorites().toSet()
+        content = store.loadContent()
+        searchFolders = store.loadSearchFolders()
+        scanFolder = store.loadScanFolder()
+        gridView = store.loadGridView()
+        autoSort = store.loadAutoSort()
+        watching = store.loadWatch()
+        lockEnabled = store.loadLock()
+        undoCount = store.loadUndo().size
+        plan = null
+        index = null
+        dupGroups = null
+        refreshNames()
+        if (watching && allFilesAccess) WatchService.start(ctx) else WatchService.stop(ctx)
+    }
+
     /** Überwachung des Download-Ordners ein-/ausschalten. */
     fun setWatch(on: Boolean) {
         if (on && !allFilesAccess) {

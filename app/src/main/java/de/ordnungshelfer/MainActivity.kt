@@ -8,7 +8,10 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.text.format.Formatter
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -42,19 +45,75 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val vm: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { AppTheme { App(vm) } }
+        setContent {
+            AppTheme {
+                if (vm.locked) LockScreen(onUnlock = ::authenticate) else App(vm)
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         // z. B. nach dem Erteilen von „Zugriff auf alle Dateien“ in den Einstellungen
         vm.refreshAccess()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.onForeground()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        vm.onBackground()
+    }
+
+    /** Fingerabdruck, Gesicht oder Displaysperre (PIN/Muster) abfragen. */
+    private fun authenticate() {
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    vm.unlocked()
+                }
+            },
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("CX File Manager entsperren")
+            .setSubtitle("Mit Fingerabdruck oder Displaysperre")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .build()
+        prompt.authenticate(info)
+    }
+}
+
+/** Sperrbildschirm der App. */
+@Composable
+fun LockScreen(onUnlock: () -> Unit) {
+    LaunchedEffect(Unit) { onUnlock() }
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(Icons.Filled.Lock, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(16.dp))
+            Text("CX File Manager ist gesperrt", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onUnlock) {
+                Icon(Icons.Filled.Fingerprint, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Entsperren")
+            }
+        }
     }
 }
 
@@ -146,9 +205,14 @@ fun SettingsScreen(vm: MainViewModel) {
         TabRow(selectedTabIndex = sub) {
             Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Allgemein") }, icon = { Icon(Icons.Filled.Settings, null) })
             Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Regeln") }, icon = { Icon(Icons.Filled.Tune, null) })
+            Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Daten") }, icon = { Icon(Icons.Filled.Shield, null) })
         }
         Box(Modifier.weight(1f)) {
-            if (sub == 0) FoldersScreen(vm) else RulesScreen(vm)
+            when (sub) {
+                0 -> FoldersScreen(vm)
+                1 -> RulesScreen(vm)
+                else -> DataScreen(vm)
+            }
         }
     }
 }
