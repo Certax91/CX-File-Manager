@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Date
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
@@ -445,17 +447,36 @@ fun RulesScreen(vm: MainViewModel) {
     var target by rememberSaveable { mutableStateOf("") }
     var base by rememberSaveable { mutableStateOf<String?>(null) }
     var tagText by rememberSaveable { mutableStateOf("") }
+    /** Regel, die gerade bearbeitet wird (null = neue Regel) */
+    var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
     val chooseBase = rememberFolderChooser(vm, "Ablageort für diese Regel") { base = it }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    fun resetForm() {
+        field = RuleField.NAME_CONTAINS; pattern = ""; target = ""; base = null; tagText = ""; editingId = null
+    }
+
+    fun startEdit(rule: Rule) {
+        editingId = rule.id
+        field = rule.field
+        pattern = rule.pattern
+        target = rule.targetFolder
+        base = rule.targetBase
+        tagText = rule.tags.joinToString(", ")
+        scope.launch { listState.animateScrollToItem(0) }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SectionTitle("Neue Regel")
+            SectionTitle(if (editingId == null) "Neue Regel" else "Regel bearbeiten")
             Spacer(Modifier.height(4.dp))
-            Hint("Beispiel: Name enthält „Rechnung“ → Ordner „Finanzen/Rechnungen“. Mit „/“ legst du Unterordner an. Über „Ablageort“ kann das Ziel auch ein ganz anderer Ordner sein.")
+            if (editingId != null) Hint("Ändere die Felder und tippe auf „Änderungen speichern“.") else Hint("Beispiel: Name enthält „Rechnung“ → Ordner „Finanzen/Rechnungen“. Mit „/“ legst du Unterordner an. Über „Ablageort“ kann das Ziel auch ein ganz anderer Ordner sein.")
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -509,26 +530,39 @@ fun RulesScreen(vm: MainViewModel) {
             )
         }
         item {
-            Button(
-                onClick = {
-                    vm.addRule(field, pattern, target, base, parseTags(tagText))
-                    pattern = ""; target = ""; base = null; tagText = ""
-                },
-                enabled = pattern.isNotBlank() && (base != null || target.trim('/', ' ').isNotEmpty()),
-            ) {
-                Icon(Icons.Filled.Add, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Regel hinzufügen")
+            val valid = pattern.isNotBlank() && (base != null || target.trim('/', ' ').isNotEmpty())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = {
+                        val id = editingId
+                        if (id == null) vm.addRule(field, pattern, target, base, parseTags(tagText))
+                        else vm.updateRule(id, field, pattern, target, base, parseTags(tagText))
+                        resetForm()
+                    },
+                    enabled = valid,
+                ) {
+                    Icon(if (editingId == null) Icons.Filled.Add else Icons.Filled.Check, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (editingId == null) "Regel hinzufügen" else "Änderungen speichern")
+                }
+                if (editingId != null) {
+                    OutlinedButton(onClick = { resetForm() }) { Text("Abbrechen") }
+                }
             }
         }
         item {
             Spacer(Modifier.height(8.dp))
             SectionTitle("Deine Regeln")
             Spacer(Modifier.height(4.dp))
-            Hint(if (vm.rules.isEmpty()) "Noch keine Regeln – sortiert wird dann nur nach Typ und/oder Datum." else "Die erste passende Regel gewinnt. Mit den Pfeilen änderst du die Reihenfolge.")
+            Hint(if (vm.rules.isEmpty()) "Noch keine Regeln – sortiert wird dann nur nach Typ und/oder Datum." else "Antippen zum Bearbeiten. Die erste passende Regel gewinnt, mit den Pfeilen änderst du die Reihenfolge.")
         }
         itemsIndexed(vm.rules, key = { _, r -> r.id }) { i, rule ->
-            Card(Modifier.fillMaxWidth()) {
+            val isEditing = rule.id == editingId
+            Card(
+                Modifier.fillMaxWidth().clickable { startEdit(rule) },
+                colors = if (isEditing) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                else CardDefaults.cardColors(),
+            ) {
                 Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${rule.field.label} „${rule.pattern}“")
@@ -552,7 +586,10 @@ fun RulesScreen(vm: MainViewModel) {
                     IconButton(onClick = { vm.moveRule(rule, up = false) }, enabled = i < vm.rules.lastIndex) {
                         Icon(Icons.Filled.KeyboardArrowDown, "Nach unten")
                     }
-                    IconButton(onClick = { vm.deleteRule(rule) }) {
+                    IconButton(onClick = {
+                        if (isEditing) resetForm()
+                        vm.deleteRule(rule)
+                    }) {
                         Icon(Icons.Filled.Delete, "Regel löschen")
                     }
                 }

@@ -203,6 +203,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         plan = null
     }
 
+    /** Bestehende Regel ändern – Position in der Liste bleibt gleich. */
+    fun updateRule(id: Long, field: RuleField, pattern: String, target: String, base: String?, ruleTags: List<String>) {
+        rules = rules.map {
+            if (it.id == id) it.copy(
+                field = field,
+                pattern = pattern.trim(),
+                targetFolder = target.trim().trim('/'),
+                targetBase = base,
+                tags = normalizeTags(ruleTags),
+            ) else it
+        }
+        store.saveRules(rules)
+        plan = null
+        message = "Regel gespeichert"
+    }
+
     fun deleteRule(rule: Rule) {
         rules = rules - rule
         store.saveRules(rules)
