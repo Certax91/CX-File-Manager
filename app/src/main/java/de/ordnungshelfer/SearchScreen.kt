@@ -13,7 +13,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -65,11 +70,19 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     var editing by remember { mutableStateOf<DupEntry?>(null) }
     var bulkTag by remember { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(ExplorerSort.NAME) }
-    var sortMenu by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    var selMenu by remember { mutableStateOf(false) }
+    var newFolder by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<File?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    val grid = vm.gridView
     val searching = query.isNotBlank() || tagFilter.isNotEmpty()
     val roots = remember { Docs.storageRoots(ctx).map { it.second.absolutePath }.toSet() }
     val atRoot = current.absolutePath in roots
+    val done: () -> Unit = { selection = emptySet(); refresh++ }
+    val chooseMove = rememberFolderChooser(vm, "Verschieben nach") { dest -> vm.transferMany(selection, dest, copy = false, onDone = done) }
+    val chooseCopy = rememberFolderChooser(vm, "Kopieren nach") { dest -> vm.transferMany(selection, dest, copy = true, onDone = done) }
 
     BackHandler(enabled = selection.isNotEmpty() || searching || !atRoot) {
         when {
@@ -103,16 +116,22 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
         if (searching && (vm.index == null || vm.indexRoot != currentPath)) vm.buildIndexFor(current)
     }
     val tagsMap = vm.tags
+    val contentMap = vm.content
     val index = vm.index
-    val results = remember(index, query, tagFilter, tagsMap, searching) {
+    val results = remember(index, query, tagFilter, tagsMap, contentMap, searching) {
         if (!searching || vm.indexRoot != currentPath) emptyList()
         else {
             val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
             val wanted = tagFilter.map { it.lowercase() }
             index.orEmpty().filter { e ->
-                val fileTags = tagsMap[e.node.uri.toString()].orEmpty().map { it.lowercase() }
+                val key = e.node.uri.toString()
+                val fileTags = tagsMap[key].orEmpty().map { it.lowercase() }
+                val text = contentMap[key]
                 wanted.all { it in fileTags } &&
-                    terms.all { t -> e.node.name.lowercase().contains(t) || fileTags.any { it.contains(t) } }
+                    terms.all { t ->
+                        e.node.name.lowercase().contains(t) || fileTags.any { it.contains(t) } ||
+                            (text != null && text.contains(t, ignoreCase = true))
+                    }
             }.sortedBy { it.node.name.lowercase() }
         }
     }
@@ -124,13 +143,22 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
         editing = DupEntry(node, Docs.prettyPath(Uri.fromFile(parent)), Uri.fromFile(parent), Uri.fromFile(parent))
     }
 
+    fun clickItem(f: File, isDir: Boolean) {
+        val u = Uri.fromFile(f)
+        when {
+            selection.isNotEmpty() -> selection = selection.toggle(u)
+            isDir -> currentPath = f.absolutePath
+            else -> openEntry(f)
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         // ---------- Suchfeld bzw. Auswahlleiste ----------
         if (selection.isEmpty()) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("In „${current.name.ifEmpty { "Speicher" }}“ suchen (Name oder Tag)") },
+                placeholder = { Text("In „${current.name.ifEmpty { "Speicher" }}“ suchen (Name, Tag, Text)") },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, "Leeren") }
@@ -139,27 +167,51 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
             )
         } else {
+            val selFiles = selection.filter { File(it.path!!).isFile }
             Row(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = { selection = emptySet() }) { Icon(Icons.Filled.Close, "Auswahl beenden") }
                 Text("${selection.size} ausgewählt", Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                TextButton(onClick = {
-                    selection = if (searching) results.map { it.node.uri }.toSet()
-                    else listing.orEmpty().filter { !it.isDir }.map { Uri.fromFile(it.file) }.toSet()
-                }) { Text("Alle") }
-                Button(onClick = { bulkTag = true }) {
-                    Icon(Icons.Filled.Sell, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Tag vergeben")
+                IconButton(onClick = { shareFiles(ctx, selFiles) { vm.message = it } }, enabled = selFiles.isNotEmpty()) {
+                    Icon(Icons.Filled.Share, "Teilen")
+                }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Löschen") }
+                IconButton(onClick = chooseMove) { Icon(Icons.Filled.DriveFileMove, "Verschieben") }
+                Box {
+                    IconButton(onClick = { selMenu = true }) { Icon(Icons.Filled.MoreVert, "Mehr") }
+                    DropdownMenu(expanded = selMenu, onDismissRequest = { selMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Alle auswählen") }, leadingIcon = { Icon(Icons.Filled.SelectAll, null) },
+                            onClick = {
+                                selMenu = false
+                                selection = if (searching) results.map { it.node.uri }.toSet()
+                                else listing.orEmpty().map { Uri.fromFile(it.file) }.toSet()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Kopieren nach …") }, leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                            onClick = { selMenu = false; chooseCopy() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Umbenennen") }, leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, null) },
+                            enabled = selection.size == 1,
+                            onClick = { selMenu = false; renameTarget = File(selection.first().path!!) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Tag vergeben") }, leadingIcon = { Icon(Icons.Filled.Sell, null) },
+                            enabled = selFiles.isNotEmpty(),
+                            onClick = { selMenu = false; bulkTag = true },
+                        )
+                    }
                 }
             }
         }
 
         // ---------- Tag-Filter ----------
         val allTags = vm.allTags
-        if (allTags.isNotEmpty()) {
+        if (allTags.isNotEmpty() && selection.isEmpty()) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -191,13 +243,23 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                 }
             }
             Box {
-                IconButton(onClick = { sortMenu = true }) { Icon(Icons.Filled.Sort, "Sortieren") }
-                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Menü") }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Neuer Ordner") }, leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) },
+                        onClick = { menu = false; newFolder = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (grid) "Listenansicht" else "Rasteransicht") },
+                        leadingIcon = { Icon(if (grid) Icons.Filled.ViewList else Icons.Filled.GridView, null) },
+                        onClick = { menu = false; vm.toggleGridView() },
+                    )
+                    HorizontalDivider()
                     ExplorerSort.entries.forEach { o ->
                         DropdownMenuItem(
-                            text = { Text("Nach ${o.label}") },
-                            leadingIcon = { if (o == sort) Icon(Icons.Filled.Check, null) },
-                            onClick = { sort = o; sortMenu = false },
+                            text = { Text("Sortieren nach ${o.label}") },
+                            leadingIcon = { if (o == sort) Icon(Icons.Filled.Check, null) else Icon(Icons.Filled.Sort, null) },
+                            onClick = { sort = o; menu = false },
                         )
                     }
                     HorizontalDivider()
@@ -205,12 +267,12 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                         text = { Text(if (startDir.absolutePath == currentPath) "Ist Startordner" else "Als Startordner festlegen") },
                         leadingIcon = { Icon(Icons.Filled.PushPin, null) },
                         enabled = startDir.absolutePath != currentPath,
-                        onClick = { vm.setSearchStart(Uri.fromFile(current).toString()); sortMenu = false },
+                        onClick = { vm.setSearchStart(Uri.fromFile(current).toString()); menu = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Neu laden") },
                         leadingIcon = { Icon(Icons.Filled.Refresh, null) },
-                        onClick = { refresh++; if (searching) vm.buildIndexFor(current); sortMenu = false },
+                        onClick = { refresh++; if (searching) vm.buildIndexFor(current); menu = false },
                     )
                 }
             }
@@ -250,15 +312,40 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
             val l = listing
             when {
                 l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                l.isEmpty() -> EmptyState(Icons.Filled.FolderOpen, "Ordner ist leer", "")
+                l.isEmpty() -> EmptyState(Icons.Filled.FolderOpen, "Ordner ist leer", "Über das Menü oben rechts legst du einen neuen Ordner an.")
+                grid -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(104.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(8.dp),
+                ) {
+                    items(l, key = { it.file.absolutePath }) { e ->
+                        val u = Uri.fromFile(e.file)
+                        GridItem(
+                            vm = vm,
+                            entry = e,
+                            selected = u in selection,
+                            onClick = { clickItem(e.file, e.isDir) },
+                            onLongClick = { selection = selection + u },
+                        )
+                    }
+                }
                 else -> LazyColumn(Modifier.weight(1f)) {
                     items(l, key = { it.file.absolutePath }) { e ->
+                        val u = Uri.fromFile(e.file)
                         if (e.isDir) {
+                            val sel = u in selection
                             Row(
-                                Modifier.fillMaxWidth().clickable { currentPath = e.file.absolutePath }.padding(horizontal = 16.dp, vertical = 10.dp),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+                                    .combinedClickable(onClick = { clickItem(e.file, true) }, onLongClick = { selection = selection + u })
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                                Icon(
+                                    if (sel) Icons.Filled.CheckCircle else Icons.Filled.Folder, null,
+                                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp),
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -268,20 +355,18 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                                if (u.toString() in vm.favorites) Icon(Icons.Filled.Star, null, Modifier.size(18.dp), tint = Color(0xFFF5B400))
                                 Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else {
-                            val uri = Uri.fromFile(e.file)
                             FileRow(
                                 vm = vm,
                                 name = e.file.name,
                                 subtitle = "${Formatter.formatShortFileSize(ctx, e.size)} · ${formatShortDate(ctx, e.modified)}",
-                                uri = uri,
-                                selected = uri in selection,
-                                onClick = {
-                                    if (selection.isNotEmpty()) selection = selection.toggle(uri) else openEntry(e.file)
-                                },
-                                onLongClick = { selection = selection + uri },
+                                uri = u,
+                                selected = u in selection,
+                                onClick = { clickItem(e.file, false) },
+                                onLongClick = { selection = selection + u },
                             )
                         }
                     }
@@ -300,17 +385,106 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     }
 
     if (bulkTag) {
+        val files = selection.filter { File(it.path!!).isFile }
         TagInputDialog(
-            title = "Tag für ${selection.size} Dateien",
+            title = "Tag für ${files.size} Dateien",
             suggestions = vm.allTags,
             onConfirm = { t ->
-                vm.addTagTo(selection, t)
+                vm.addTagTo(files, t)
                 bulkTag = false
                 selection = emptySet()
             },
             onDismiss = { bulkTag = false },
         )
     }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("In den Papierkorb?") },
+            text = { Text("${selection.size} Elemente kommen in den Papierkorb und können dort ${Sorter.TRASH_DAYS} Tage lang wiederhergestellt werden.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; vm.trashUris(selection, done) }) {
+                    Text("Löschen", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Abbrechen") } },
+        )
+    }
+
+    if (newFolder) {
+        NameDialog(title = "Neuer Ordner", initial = "", confirm = "Anlegen", onDismiss = { newFolder = false }) { name ->
+            if (vm.createFolder(current, name)) { newFolder = false; refresh++ }
+        }
+    }
+
+    renameTarget?.let { f ->
+        NameDialog(title = "Umbenennen", initial = f.name, confirm = "Umbenennen", selectBase = !f.isDirectory, onDismiss = { renameTarget = null }) { name ->
+            renameTarget = null
+            vm.renamePath(Uri.fromFile(f), name, done)
+        }
+    }
+}
+
+/** Kachel in der Rasteransicht. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GridItem(vm: MainViewModel, entry: ExEntry, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Column(
+        Modifier
+            .padding(4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(88.dp), contentAlignment = Alignment.Center) {
+            if (entry.isDir) Icon(Icons.Filled.Folder, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+            else FileThumb(Uri.fromFile(entry.file), entry.file.name, 88.dp)
+            if (selected) Icon(Icons.Filled.CheckCircle, null, Modifier.align(Alignment.TopEnd), tint = MaterialTheme.colorScheme.primary)
+            else if (Uri.fromFile(entry.file).toString() in vm.favorites) {
+                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = Color(0xFFF5B400))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            entry.file.name,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+}
+
+/** Eingabedialog für Namen (Neuer Ordner, Umbenennen). */
+@Composable
+fun NameDialog(
+    title: String,
+    initial: String,
+    confirm: String,
+    selectBase: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val dot = initial.lastIndexOf('.')
+    var value by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                initial,
+                androidx.compose.ui.text.TextRange(0, if (selectBase && dot > 0) dot else initial.length),
+            )
+        )
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(value = value, onValueChange = { value = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(value.text) }, enabled = value.text.isNotBlank()) { Text(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+    )
 }
 
 private fun <T> Set<T>.toggle(x: T): Set<T> = if (x in this) this - x else this + x
@@ -352,12 +526,11 @@ fun FileRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (selected) Icons.Filled.CheckCircle else iconFor(name),
-            null,
-            tint = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.size(28.dp),
-        )
+        if (selected) {
+            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
+        } else {
+            FileThumb(uri, name, 40.dp)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)

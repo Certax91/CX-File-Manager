@@ -169,6 +169,24 @@ class Store(context: Context) {
         prefs.edit().putString("scanFolder", f).apply()
     }
 
+    fun loadGridView(): Boolean = prefs.getBoolean("gridView", false)
+    fun saveGridView(on: Boolean) { prefs.edit().putBoolean("gridView", on).apply() }
+
+    /** Erkannter Text gescannter Dokumente: Datei-URI → Text (für die Volltextsuche). */
+    fun loadContent(): Map<String, String> {
+        val raw = prefs.getString("content", null) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(raw)
+            o.keys().asSequence().associateWith { o.getString(it) }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun saveContent(c: Map<String, String>) {
+        val o = JSONObject()
+        c.forEach { (k, v) -> o.put(k, v) }
+        prefs.edit().putString("content", o.toString()).apply()
+    }
+
     fun loadWatch(): Boolean = prefs.getBoolean("watchDownloads", false)
 
     fun saveWatch(on: Boolean) {

@@ -103,6 +103,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    var gridView by mutableStateOf(store.loadGridView())
+        private set
+
+    fun toggleGridView() {
+        gridView = !gridView
+        store.saveGridView(gridView)
+    }
+
+    /** Erkannter Text gescannter Dokumente (Datei-URI → Text) */
+    var content by mutableStateOf(store.loadContent())
+        private set
+
     /** Favoriten (Datei-URIs) */
     var favorites by mutableStateOf(store.loadFavorites().toSet())
         private set
@@ -684,11 +696,143 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (done.isNotEmpty()) remapTags(emptyMap(), done)
     }
 
+    // ---------- Dateimanager: Löschen, Mehrfachaktionen, Ordner ----------
+
+    /** Dateien und Ordner (direkte Pfade) in den Papierkorb verschieben. */
+    fun trashUris(uris: Collection<Uri>, onDone: () -> Unit = {}) {
+        if (uris.isEmpty()) return
+        work("Verschiebe in den Papierkorb …") {
+            val entries = uris.mapNotNull { u ->
+                val f = File(u.path ?: return@mapNotNull null)
+                if (!f.exists()) return@mapNotNull null
+                val node = if (f.isDirectory) {
+                    Node(u, f.name, android.provider.DocumentsContract.Document.MIME_TYPE_DIR, f.walkTopDown().filter { it.isFile }.sumOf { it.length() }, f.lastModified())
+                } else Docs.nodeOf(ctx, u) ?: return@mapNotNull null
+                val parent = Uri.fromFile(f.parentFile ?: f)
+                DupEntry(node, Docs.prettyParent(u), parent, Uri.fromFile(Docs.volumeRootOf(ctx, f)))
+            }
+            val added = Sorter.moveToTrash(ctx, entries) { n -> busy = "Papierkorb: $n von ${entries.size} …" }
+            store.saveTrash(trash + added)
+            withContext(Dispatchers.Main) {
+                trash = trash + added
+                index = null
+                val failed = uris.size - added.size
+                message = if (failed == 0) "${added.size} in den Papierkorb verschoben" else "${added.size} verschoben, $failed nicht möglich"
+                onDone()
+            }
+        }
+    }
+
+    /** Einzelne Datei in den Papierkorb (auch für freigegebene Ordner ohne direkten Pfad). */
+    fun trashEntry(e: DupEntry, onDone: () -> Unit = {}) {
+        if (Docs.isFile(e.node.uri)) { trashUris(listOf(e.node.uri), onDone); return }
+        work("Verschiebe in den Papierkorb …") {
+            val added = Sorter.moveToTrash(ctx, listOf(e)) { }
+            store.saveTrash(trash + added)
+            withContext(Dispatchers.Main) {
+                trash = trash + added
+                index = null
+                message = if (added.isEmpty()) "Löschen nicht möglich" else "In den Papierkorb verschoben"
+                if (added.isNotEmpty()) onDone()
+            }
+        }
+    }
+
+    /** Mehrere Dateien/Ordner verschieben oder kopieren (Ziel: gespeicherter Ordner-Wert). */
+    fun transferMany(uris: Collection<Uri>, dest: String, copy: Boolean, onDone: () -> Unit = {}) {
+        if (uris.isEmpty()) return
+        work(if (copy) "Kopiere …" else "Verschiebe …") {
+            val destUri = Docs.rootDoc(Uri.parse(dest))
+            val renamed = mutableMapOf<String, String>()
+            var ok = 0
+            uris.forEachIndexed { i, u ->
+                busy = (if (copy) "Kopiere " else "Verschiebe ") + "${i + 1} von ${uris.size} …"
+                val f = File(u.path ?: return@forEachIndexed)
+                val result: Uri? = if (f.isDirectory) {
+                    if (!Docs.isFile(destUri)) null
+                    else (if (copy) Docs.copyDir(ctx, f, File(destUri.path!!)) else Docs.moveDir(ctx, f, File(destUri.path!!)))?.let { Uri.fromFile(it) }
+                } else {
+                    val node = Docs.nodeOf(ctx, u)
+                    val parent = Docs.parentOf(u)
+                    if (node == null || parent == null) null
+                    else if (copy) Docs.copy(ctx, u, node.name, node.mime, destUri)
+                    else Docs.move(ctx, u, node.name, node.mime, parent, destUri, node.name)
+                }
+                if (result != null) {
+                    ok++
+                    if (!copy) renamed[u.toString()] = result.toString()
+                    else tags[u.toString()]?.let { renamed["copy:" + result] = it.joinToString("\u0000") }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                val moves = renamed.filterKeys { !it.startsWith("copy:") }
+                val copies = renamed.filterKeys { it.startsWith("copy:") }
+                    .map { (k, v) -> k.removePrefix("copy:") to v.split("\u0000") }.toMap()
+                remapTags(moves, copies)
+                // Ordner verschoben: Tags/Favoriten der Dateien darin mitnehmen
+                moves.forEach { (old, new) -> remapPrefix(old, new) }
+                index = null
+                message = (if (copy) "$ok kopiert" else "$ok verschoben") + if (ok < uris.size) ", ${uris.size - ok} nicht möglich" else ""
+                onDone()
+            }
+        }
+    }
+
+    /** Datei oder Ordner umbenennen (direkter Pfad). */
+    fun renamePath(uri: Uri, wanted: String, onDone: () -> Unit = {}) {
+        val f = File(uri.path ?: return)
+        val name = if (f.isDirectory) wanted.trim().replace('/', '_') else fixFileName(wanted, f.name)
+        if (name.isEmpty() || name.startsWith(".")) { message = "Ungültiger Name"; return }
+        if (name == f.name) return
+        work("Benenne um …") {
+            val r = Docs.rename(ctx, uri, name)
+            withContext(Dispatchers.Main) {
+                if (r == null) {
+                    message = "Umbenennen nicht möglich – gibt es „$name“ schon?"
+                } else {
+                    remapTags(mapOf(uri.toString() to r.toString()), emptyMap())
+                    remapPrefix(uri.toString(), r.toString())
+                    index = null
+                    message = "Umbenannt in „$name“"
+                }
+                onDone()
+            }
+        }
+    }
+
+    fun createFolder(parent: File, name: String): Boolean {
+        val clean = name.trim()
+        if (clean.isEmpty() || clean.contains('/') || clean.startsWith(".")) { message = "Ungültiger Name"; return false }
+        val d = File(parent, clean)
+        if (d.exists()) { message = "„$clean“ gibt es schon"; return false }
+        WatchState.ignore(d.absolutePath)
+        return d.mkdir().also { message = if (it) "Ordner „$clean“ angelegt" else "Ordner konnte nicht angelegt werden" }
+    }
+
+    /** Nach Ordner-Umbenennung/-Verschiebung: Tags, Favoriten und Texte der Dateien darin umschreiben. */
+    private fun remapPrefix(oldDir: String, newDir: String) {
+        val o = "$oldDir/"
+        val n = "$newDir/"
+        if (tags.keys.any { it.startsWith(o) }) {
+            tags = tags.mapKeys { (k, _) -> if (k.startsWith(o)) n + k.removePrefix(o) else k }
+            store.saveTags(tags)
+        }
+        if (favorites.any { it.startsWith(o) || it == oldDir }) {
+            favorites = favorites.map { if (it.startsWith(o)) n + it.removePrefix(o) else if (it == oldDir) newDir else it }.toSet()
+            store.saveFavorites(favorites)
+        }
+    }
+
     /** Tags folgen der Datei, wenn die App sie verschiebt. */
     private fun remapTags(renamed: Map<String, String>, added: Map<String, List<String>>) {
         if (renamed.isEmpty() && added.isEmpty()) return
         val updated = tags.toMutableMap()
         renamed.forEach { (old, new) -> updated.remove(old)?.let { updated[new] = it } }
+        // Erkannter Text wandert mit
+        if (renamed.keys.any { it in content }) {
+            content = content.mapKeys { (k, _) -> renamed[k] ?: k }
+            store.saveContent(content)
+        }
         // Favoriten wandern ebenfalls mit
         if (renamed.keys.any { it in favorites }) {
             favorites = favorites.map { renamed[it] ?: it }.toSet()

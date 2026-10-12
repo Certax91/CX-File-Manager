@@ -55,6 +55,7 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
     val node = entry.node
     var renaming by remember { mutableStateOf(false) }
     var editTags by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val chooseMoveTarget = rememberFolderChooser(vm, "Verschieben nach") { dest -> vm.moveFile(entry, dest, onChanged) }
     val chooseCopyTarget = rememberFolderChooser(vm, "Kopieren nach") { dest -> vm.copyFile(entry, dest) }
 
@@ -115,7 +116,8 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
                     ActionButton(Icons.Filled.DriveFileRenameOutline, "Umbenennen") { renaming = true }
                     ActionButton(Icons.Filled.ContentCopy, "Kopieren", chooseCopyTarget)
                     ActionButton(Icons.Filled.DriveFileMove, "Verschieben", chooseMoveTarget)
-                    ActionButton(Icons.Filled.OpenInNew, "Öffnen") { openFile(ctx, node) { vm.message = it } }
+                    ActionButton(Icons.Filled.Share, "Teilen") { shareFiles(ctx, listOf(node.uri)) { vm.message = it } }
+                    ActionButton(Icons.Filled.Delete, "Löschen") { confirmDelete = true }
                 }
             }
         }
@@ -152,6 +154,20 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
         )
     }
 
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("In den Papierkorb?") },
+            text = { Text("„${node.name}“ kommt in den Papierkorb und kann dort ${Sorter.TRASH_DAYS} Tage lang wiederhergestellt werden.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; vm.trashEntry(entry) { onDismiss() } }) {
+                    Text("Löschen", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Abbrechen") } },
+        )
+    }
+
     if (editTags) {
         TagEditDialog(
             vm = vm,
@@ -164,11 +180,11 @@ fun FileDetailDialog(vm: MainViewModel, entry: DupEntry, onChanged: (DupEntry) -
 
 @Composable
 private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null)
             Spacer(Modifier.height(4.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
     }
 }

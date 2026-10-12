@@ -154,7 +154,7 @@ object Docs {
     fun delete(ctx: Context, uri: Uri): Boolean {
         if (isFile(uri)) {
             val file = f(uri)
-            val ok = file.delete()
+            val ok = if (file.isDirectory) file.deleteRecursively() else file.delete()
             if (ok) scan(ctx, file.absolutePath)
             return ok
         }
@@ -345,6 +345,35 @@ object Docs {
         val path = id.substringAfter(':', "").substringBeforeLast('/', "")
         val volName = if (volume == "primary") "Interner Speicher" else "SD-Karte"
         return if (path.isEmpty()) volName else "$volName/$path"
+    }
+
+    /** Speicher-Hauptordner (intern oder SD-Karte), auf dem eine Datei liegt. */
+    fun volumeRootOf(ctx: Context, file: File): File =
+        storageRoots(ctx).map { it.second }.firstOrNull { file.absolutePath.startsWith(it.absolutePath + "/") }
+            ?: Environment.getExternalStorageDirectory()
+
+    /** Ordner (direkter Pfad) verschieben; über Speichergrenzen hinweg per Kopieren + Löschen. */
+    fun moveDir(ctx: Context, src: File, destParent: File): File? {
+        val existing = destParent.list()?.toSet() ?: emptySet()
+        val dest = File(destParent, uniqueName(src.name, existing))
+        if (dest.absolutePath.startsWith(src.absolutePath + "/")) return null // nicht in sich selbst
+        WatchState.ignore(dest.absolutePath)
+        val ok = src.renameTo(dest) || (runCatching { src.copyRecursively(dest) }.getOrDefault(false) && src.deleteRecursively())
+        if (!ok) return null
+        scan(ctx, src.absolutePath, dest.absolutePath)
+        return dest
+    }
+
+    /** Ordner (direkter Pfad) samt Inhalt kopieren. */
+    fun copyDir(ctx: Context, src: File, destParent: File): File? {
+        val existing = destParent.list()?.toSet() ?: emptySet()
+        val dest = File(destParent, uniqueName(src.name, existing))
+        if (dest.absolutePath.startsWith(src.absolutePath + "/")) return null
+        WatchState.ignore(dest.absolutePath)
+        val ok = runCatching { src.copyRecursively(dest) }.getOrDefault(false)
+        if (!ok) return null
+        scan(ctx, dest.absolutePath)
+        return dest
     }
 
     /** Unterordner eines direkten Pfads für den Ordnerpicker (ohne versteckte Ordner), alphabetisch. */
