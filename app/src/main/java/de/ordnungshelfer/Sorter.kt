@@ -159,19 +159,22 @@ object Sorter {
         }
     }
 
-    private fun hash(ctx: Context, uri: Uri): String? = try {
-        val md = MessageDigest.getInstance("SHA-256")
-        ctx.contentResolver.openInputStream(uri)?.use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                md.update(buf, 0, n)
+    private fun hash(ctx: Context, uri: Uri): String? {
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            val input = ctx.contentResolver.openInputStream(uri) ?: return null
+            input.use {
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = it.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
             }
-        } ?: return null
-        md.digest().joinToString("") { "%02x".format(it) }
-    } catch (e: Exception) {
-        null
+            md.digest().joinToString("") { b -> "%02x".format(b) }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     // ---------- Papierkorb ----------
