@@ -23,9 +23,8 @@ jobs:
           set -o pipefail
           if ! ./gradlew assembleDebug --no-daemon --console=plain 2>&1 | tee build.log; then
             # Fehlerzeilen als Hinweise ausgeben, damit sie ohne Anmeldung lesbar sind
-            grep -E '^e: |error:|What went wrong|Could not|FAILURE|> ' build.log | head -40 | while IFS= read -r line; do
-              echo "::error::${line}"
-            done
+            { grep -E '^e: ' build.log; grep -A 6 'What went wrong' build.log; } | grep -v '^> Task' | head -40 > errors.txt
+            echo "::error::$(sed ':a;N;$!ba;s/\n/%0A/g' errors.txt)"
             exit 1
           fi
           cp app/build/outputs/apk/debug/app-debug.apk Ordnungshelfer.apk
