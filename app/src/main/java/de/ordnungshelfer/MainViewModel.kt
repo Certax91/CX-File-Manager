@@ -304,7 +304,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val uri = Uri.parse(key)
             val node = Docs.nodeOf(ctx, uri)
             if (node == null) stale += key
-            else all += DupEntry(node, Docs.prettyParent(uri), uri, uri)
+            else all += DupEntry(node, Docs.prettyParent(uri), Docs.parentOf(uri) ?: uri, uri)
         }
         withContext(Dispatchers.Main) {
             if (stale.isNotEmpty()) {
@@ -343,6 +343,82 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         tags = updated
         store.saveTags(tags)
         message = "Tag „$t“ an ${uris.size} Dateien vergeben"
+    }
+
+    // ---------- Einzelne Dateien ----------
+
+    /** Neuer Eintrag nach Umbenennen/Verschieben, damit Liste und Detailansicht aktuell bleiben. */
+    private fun entryFor(uri: Uri, root: Uri): DupEntry? {
+        val node = Docs.nodeOf(ctx, uri) ?: return null
+        return DupEntry(node, Docs.prettyParent(uri), Docs.parentOf(uri) ?: uri, root)
+    }
+
+    private fun replaceInIndex(old: DupEntry, new: DupEntry?) {
+        index = index?.let { list ->
+            val i = list.indexOfFirst { it.node.uri == old.node.uri }
+            when {
+                new == null -> list.filterNot { it.node.uri == old.node.uri }
+                i < 0 -> listOf(new) + list
+                else -> list.toMutableList().also { it[i] = new }
+            }
+        }
+    }
+
+    fun renameFile(e: DupEntry, wanted: String, onDone: (DupEntry) -> Unit) {
+        var name = wanted.trim()
+        val oldExt = extensionOf(e.node.name)
+        // Endung vergessen? Dann die alte behalten.
+        if (oldExt.isNotEmpty() && extensionOf(name).isEmpty()) name = "$name.$oldExt"
+        when {
+            name.isEmpty() || name.contains('/') || name.startsWith(".") -> { message = "Ungültiger Dateiname"; return }
+            name == e.node.name -> return
+        }
+        work("Benenne um …") {
+            val newUri = Docs.rename(ctx, e.node.uri, name)
+            val updated = newUri?.let { entryFor(it, e.root) }
+            withContext(Dispatchers.Main) {
+                if (newUri == null || updated == null) {
+                    message = "Umbenennen nicht möglich – gibt es „$name“ dort schon?"
+                } else {
+                    remapTags(mapOf(e.node.uri.toString() to newUri.toString()), emptyMap())
+                    replaceInIndex(e, updated)
+                    message = "Umbenannt in „$name“"
+                    onDone(updated)
+                }
+            }
+        }
+    }
+
+    fun moveFile(e: DupEntry, dest: String, onDone: (DupEntry) -> Unit) = work("Verschiebe …") {
+        val destDir = Docs.rootDoc(Uri.parse(dest))
+        val newUri = Docs.move(ctx, e.node.uri, e.node.name, e.node.mime, e.parent, destDir, e.node.name)
+        val updated = newUri?.let { entryFor(it, destDir) }
+        withContext(Dispatchers.Main) {
+            if (newUri == null || updated == null) {
+                message = "Verschieben nicht möglich"
+            } else {
+                remapTags(mapOf(e.node.uri.toString() to newUri.toString()), emptyMap())
+                replaceInIndex(e, updated)
+                message = "Verschoben nach ${Docs.prettyParent(newUri)}"
+                onDone(updated)
+            }
+        }
+    }
+
+    fun copyFile(e: DupEntry, dest: String) = work("Kopiere …") {
+        val destDir = Docs.rootDoc(Uri.parse(dest))
+        val newUri = Docs.copy(ctx, e.node.uri, e.node.name, e.node.mime, destDir)
+        val copy = newUri?.let { entryFor(it, destDir) }
+        withContext(Dispatchers.Main) {
+            if (newUri == null || copy == null) {
+                message = "Kopieren nicht möglich"
+            } else {
+                // Die Kopie bekommt dieselben Tags
+                tagsOf(e.node.uri).takeIf { it.isNotEmpty() }?.let { remapTags(emptyMap(), mapOf(newUri.toString() to it)) }
+                index = index?.let { listOf(copy) + it }
+                message = "Kopiert nach ${Docs.prettyParent(newUri)}"
+            }
+        }
     }
 
     /** Tags folgen der Datei, wenn die App sie verschiebt. */

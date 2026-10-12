@@ -259,6 +259,67 @@ object Docs {
         }
     }
 
+    /** Übergeordneter Ordner einer Datei (für Verschieben/Umbenennen). */
+    fun parentOf(uri: Uri): Uri? {
+        if (isFile(uri)) return f(uri).parentFile?.let { Uri.fromFile(it) }
+        return runCatching {
+            val id = DocumentsContract.getDocumentId(uri)
+            val parentId = id.substringBeforeLast('/', "")
+            if (parentId.isEmpty() || !id.contains('/')) {
+                // Datei liegt direkt im Speicher-Hauptverzeichnis („primary:datei.pdf“)
+                DocumentsContract.buildDocumentUriUsingTree(uri, id.substringBefore(':') + ":")
+            } else {
+                DocumentsContract.buildDocumentUriUsingTree(uri, parentId)
+            }
+        }.getOrNull()
+    }
+
+    /** Benennt eine Datei um. Liefert die neue URI oder null (z. B. wenn der Name schon vergeben ist). */
+    fun rename(ctx: Context, uri: Uri, newName: String): Uri? {
+        if (isFile(uri)) {
+            val src = f(uri)
+            val dest = File(src.parentFile, newName)
+            if (dest.exists() || !src.renameTo(dest)) return null
+            scan(ctx, src.absolutePath, dest.absolutePath)
+            return Uri.fromFile(dest)
+        }
+        val parent = parentOf(uri)
+        if (parent != null && children(ctx, parent).any { it.name == newName }) return null
+        return runCatching { DocumentsContract.renameDocument(ctx.contentResolver, uri, newName) }.getOrNull()
+    }
+
+    /** Kopiert eine Datei in [toParent]. Bei Namensgleichheit wird „Name (2).ext“ verwendet. */
+    fun copy(ctx: Context, file: Uri, name: String, mime: String, toParent: Uri): Uri? {
+        val finalName = uniqueName(name, children(ctx, toParent).map { it.name }.toSet())
+        if (isFile(toParent)) {
+            val dest = File(f(toParent), finalName)
+            val ok = runCatching {
+                ctx.contentResolver.openInputStream(file)!!.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }.isSuccess
+            if (!ok) {
+                dest.delete()
+                return null
+            }
+            scan(ctx, dest.absolutePath)
+            return Uri.fromFile(dest)
+        }
+        val dest = runCatching {
+            DocumentsContract.createDocument(ctx.contentResolver, toParent, mime, finalName)
+        }.getOrNull() ?: return null
+        val ok = runCatching {
+            ctx.contentResolver.openInputStream(file)!!.use { input ->
+                ctx.contentResolver.openOutputStream(dest)!!.use { output -> input.copyTo(output) }
+            }
+        }.isSuccess
+        if (!ok) {
+            delete(ctx, dest)
+            return null
+        }
+        return dest
+    }
+
     /** Ordnerpfad einer Datei zur Anzeige, z. B. „Interner Speicher/Download/PDFs“. */
     fun prettyParent(uri: Uri): String {
         if (isFile(uri)) return prettyPath(Uri.fromFile(f(uri).parentFile ?: f(uri)))

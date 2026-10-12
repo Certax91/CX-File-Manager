@@ -124,7 +124,7 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
             else -> {
                 Text(
                     if (results.size > MAX_RESULTS) "${results.size} Treffer – die neuesten $MAX_RESULTS werden angezeigt"
-                    else "${results.size} Treffer · lange drücken für Mehrfachauswahl",
+                    else "${results.size} Treffer · antippen zum Ansehen, lange drücken für Mehrfachauswahl",
                     Modifier.padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -181,10 +181,10 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
     }
 
     editing?.let { e ->
-        TagEditDialog(
+        FileDetailDialog(
             vm = vm,
             entry = e,
-            onOpen = { openFile(ctx, e.node) { vm.message = it } },
+            onChanged = { editing = it },
             onDismiss = { editing = null },
         )
     }
@@ -205,7 +205,7 @@ fun SearchScreen(vm: MainViewModel, onGoToFolders: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TagEditDialog(vm: MainViewModel, entry: DupEntry, onOpen: () -> Unit, onDismiss: () -> Unit) {
+internal fun TagEditDialog(vm: MainViewModel, entry: DupEntry, onOpen: () -> Unit, onDismiss: () -> Unit) {
     val current = vm.tagsOf(entry.node.uri)
     var input by remember { mutableStateOf("") }
     val suggestions = vm.allTags.filter { s -> current.none { it.equals(s, ignoreCase = true) } }
@@ -301,7 +301,7 @@ private fun TagInputDialog(title: String, suggestions: List<String>, onConfirm: 
     )
 }
 
-private fun iconFor(name: String) = when (Categories.of(name)) {
+internal fun iconFor(name: String) = when (Categories.of(name)) {
     "Bilder" -> Icons.Filled.Image
     "Videos" -> Icons.Filled.Movie
     "Audio" -> Icons.Filled.MusicNote
