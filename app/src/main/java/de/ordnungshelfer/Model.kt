@@ -44,10 +44,10 @@ data class Rule(
 
     /** Lesbare Beschreibung, z. B. „Älter als 90 Tage“. */
     val description: String
-        get() = when (field) {
+        get() = when (this.field) {
             RuleField.OLDER_THAN -> "Älter als $pattern Tage"
             RuleField.LARGER_THAN -> "Größer als $pattern MB"
-            else -> "${field.label} „$pattern“"
+            else -> "${this.field.label} „$pattern“"
         }
 
     /** Zielordner, "/" erlaubt Unterordner, z. B. "Finanzen/Rechnungen". */
