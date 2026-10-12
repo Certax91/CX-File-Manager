@@ -187,9 +187,8 @@ fun EmptyState(icon: ImageVector, title: String, text: String, action: (@Composa
 @Composable
 fun FoldersScreen(vm: MainViewModel) {
     val ctx = LocalContext.current
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) vm.addRoot(uri)
-    }
+    // Gleicher Ordnerpicker wie beim Ablageort (ohne „Zugriff auf alle Dateien“: Android-Ordnerauswahl)
+    val pickRoot = rememberFolderChooser(vm, "Ordner zum Aufräumen") { vm.addRoot(Uri.parse(it)) }
     // Android 8–10: normale Speicher-Berechtigung
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         vm.refreshAccess()
@@ -293,7 +292,7 @@ fun FoldersScreen(vm: MainViewModel) {
             }
         }
         item {
-            FilledTonalButton(onClick = { picker.launch(null) }) {
+            FilledTonalButton(onClick = pickRoot) {
                 Icon(Icons.Filled.Add, null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (vm.allFilesAccess) "Anderen Ordner wählen" else "Ordner hinzufügen")

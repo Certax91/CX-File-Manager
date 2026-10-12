@@ -41,6 +41,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".FolderPickerActivity"
+            android:exported="false"
+            android:label="Ordner wählen" />
+
         <!-- „Teilen“ / „Öffnen mit“ → Speichern unter eigenem Namen -->
         <activity
             android:name=".ReceiveActivity"
