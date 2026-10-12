@@ -255,7 +255,19 @@ object Docs {
                 )
             }
         } catch (e: Exception) {
-            null
+            // Kein Dokument-Anbieter (z. B. Mediendatenbank): nur Name und Größe abfragen
+            try {
+                ctx.contentResolver.query(
+                    uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE),
+                    null, null, null,
+                )?.use { c ->
+                    if (!c.moveToFirst()) return null
+                    val name = c.getString(0) ?: return null
+                    Node(uri, name, ctx.contentResolver.getType(uri) ?: mimeOf(name), if (c.isNull(1)) 0L else c.getLong(1), 0L)
+                }
+            } catch (e2: Exception) {
+                null
+            }
         }
     }
 

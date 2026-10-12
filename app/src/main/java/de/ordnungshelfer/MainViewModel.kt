@@ -70,6 +70,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshAccess() {
         allFilesAccess = Docs.hasAllFilesAccess(ctx)
         refreshNames()
+        resolvePendingDownloads()
     }
 
     /** Ordner, auf die die App gerade zugreifen kann (file://-Ordner nur mit „Zugriff auf alle Dateien“). */
@@ -291,6 +292,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Liest alle Dateien der Ordner und Ablageorte ein, plus alle getaggten Dateien. */
     fun buildIndex() = work("Lese Dateien ein …") {
+        withContext(Dispatchers.Main) { resolvePendingDownloads() }
         val bases = (rules.mapNotNull { it.targetBase } + listOfNotNull(settings.targetBase))
             .filter { allFilesAccess || !it.startsWith("file:") }
         val folders = (usableRoots + bases).distinct().map { it to (rootNames[it] ?: Docs.prettyFolder(it).substringAfterLast('/')) }
@@ -419,6 +421,58 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 message = "Kopiert nach ${Docs.prettyParent(newUri)}"
             }
         }
+    }
+
+    // ---------- Download-Manager ----------
+
+    /** Geteilte Datei (Anhang, Datei aus anderer App) unter eigenem Namen speichern. */
+    fun saveIncoming(source: Uri, wanted: String, original: String, dest: String?, newTags: List<String>, onDone: (Boolean) -> Unit) {
+        val name = fixFileName(wanted, original)
+        if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return }
+        work("Speichere …") {
+            val saved = Downloader.saveStream(ctx, source, name, dest, allFilesAccess)
+            withContext(Dispatchers.Main) {
+                if (saved == null) {
+                    message = "Speichern nicht möglich"
+                } else {
+                    if (newTags.isNotEmpty()) remapTags(emptyMap(), mapOf(saved.toString() to newTags))
+                    index = null
+                    message = "Gespeichert: ${Docs.displayName(ctx, saved) ?: name}"
+                }
+                onDone(saved != null)
+            }
+        }
+    }
+
+    /** Link mit eigenem Dateinamen in den Download-Ordner herunterladen. */
+    fun startDownload(url: String, wanted: String, original: String, subfolder: String, mime: String?, newTags: List<String>): Boolean {
+        val name = fixFileName(wanted, original)
+        if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return false }
+        return try {
+            val id = Downloader.enqueue(ctx, url, name, subfolder, mime)
+            if (newTags.isNotEmpty()) store.savePendingDownloads(store.loadPendingDownloads() + (id to normalizeTags(newTags)))
+            message = "Download gestartet: $name"
+            true
+        } catch (e: Exception) {
+            message = "Download nicht möglich: ${e.message}"
+            false
+        }
+    }
+
+    /** Fertige Downloads bekommen ihre Tags (die genaue Datei steht erst nach dem Download fest). */
+    fun resolvePendingDownloads() {
+        val pending = store.loadPendingDownloads()
+        if (pending.isEmpty()) return
+        val done = mutableMapOf<String, List<String>>()
+        val remaining = pending.filter { (id, t) ->
+            when (val r = Downloader.result(ctx, id)) {
+                null -> true // läuft noch
+                "" -> false // fehlgeschlagen
+                else -> { done[r] = t; false }
+            }
+        }
+        store.savePendingDownloads(remaining)
+        if (done.isNotEmpty()) remapTags(emptyMap(), done)
     }
 
     /** Tags folgen der Datei, wenn die App sie verschiebt. */

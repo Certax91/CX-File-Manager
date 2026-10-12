@@ -132,6 +132,24 @@ class Store(context: Context) {
         prefs.edit().putString("tags", o.toString()).apply()
     }
 
+    /** Laufende Downloads, deren Datei nach Abschluss Tags bekommen soll: Download-ID → Tags. */
+    fun loadPendingDownloads(): Map<Long, List<String>> {
+        val raw = prefs.getString("pendingDl", null) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(raw)
+            o.keys().asSequence().associate { k ->
+                val a = o.getJSONArray(k)
+                k.toLong() to List(a.length()) { a.getString(it) }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun savePendingDownloads(p: Map<Long, List<String>>) {
+        val o = JSONObject()
+        p.forEach { (k, v) -> o.put(k.toString(), JSONArray(v)) }
+        prefs.edit().putString("pendingDl", o.toString()).apply()
+    }
+
     private fun <T> readArray(key: String, read: (JSONArray, Int) -> T): List<T> {
         val raw = prefs.getString(key, null) ?: return emptyList()
         return runCatching {

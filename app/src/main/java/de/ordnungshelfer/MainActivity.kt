@@ -80,6 +80,12 @@ enum class Tab(val label: String, val icon: ImageVector) {
 fun App(vm: MainViewModel = viewModel()) {
     var tab by rememberSaveable { mutableStateOf(Tab.FOLDERS) }
     val snackbar = remember { SnackbarHostState() }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var showDownload by remember { mutableStateOf(false) }
+    var downloadUrl by remember { mutableStateOf("") }
+    if (showDownload) {
+        DownloadDialog(vm, initialUrl = downloadUrl, stream = null, onClose = { showDownload = false })
+    }
 
     LaunchedEffect(vm.message) {
         vm.message?.let {
@@ -89,7 +95,18 @@ fun App(vm: MainViewModel = viewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Ordnungshelfer") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Ordnungshelfer") },
+                actions = {
+                    IconButton(onClick = {
+                        // Link aus der Zwischenablage übernehmen, falls vorhanden
+                        downloadUrl = Downloader.findUrl(clipboard.getText()?.text).orEmpty()
+                        showDownload = true
+                    }) { Icon(Icons.Filled.Download, "Herunterladen") }
+                },
+            )
+        },
         bottomBar = {
             NavigationBar {
                 Tab.entries.forEach { t ->

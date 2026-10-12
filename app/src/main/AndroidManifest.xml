@@ -15,6 +15,9 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!-- Für den Download-Manager (Links mit eigenem Dateinamen herunterladen) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
@@ -29,6 +32,27 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- „Teilen“ / „Öffnen mit“ → Speichern unter eigenem Namen -->
+        <activity
+            android:name=".ReceiveActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Speichern mit Ordnungshelfer"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Ordnungshelfer.Transparent">
+            <intent-filter android:label="Speichern unter …">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter android:label="Speichern unter …">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 
