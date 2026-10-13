@@ -118,7 +118,7 @@ fun FileViewer(vm: MainViewModel, state: MainViewModel.ViewerState) {
                         Icon(
                             if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
                             if (fav) "Aus Favoriten entfernen" else "Zu Favoriten",
-                            tint = if (fav) Color(0xFFF5B400) else LocalContentColor.current,
+                            tint = if (fav) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                         )
                     }
                     IconButton(onClick = { openFile(ctx, node) { vm.message = it } }) {

@@ -106,8 +106,8 @@ fun SwipeFileRow(
                 backgroundContent = {
                     val dir = state.dismissDirection
                     val (color, icon, label, align) = when (dir) {
-                        SwipeToDismissBoxValue.EndToStart -> Quad(MaterialTheme.colorScheme.error, Icons.Filled.Delete, "Papierkorb", Alignment.CenterEnd)
-                        SwipeToDismissBoxValue.StartToEnd -> Quad(MaterialTheme.colorScheme.secondary, Icons.Filled.MoreHoriz, "Aktionen", Alignment.CenterStart)
+                        SwipeToDismissBoxValue.EndToStart -> Quad(MaterialTheme.colorScheme.errorContainer, Icons.Filled.Delete, "Papierkorb", Alignment.CenterEnd)
+                        SwipeToDismissBoxValue.StartToEnd -> Quad(MaterialTheme.colorScheme.surfaceContainerHighest, Icons.Filled.MoreHoriz, "Aktionen", Alignment.CenterStart)
                         else -> Quad(Color.Transparent, Icons.Filled.MoreHoriz, "", Alignment.Center)
                     }
                     Box(
@@ -117,9 +117,9 @@ fun SwipeFileRow(
                     ) {
                         if (dir != SwipeToDismissBoxValue.Settled) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(icon, null, tint = Color.White)
+                                Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface)
                                 Spacer(Modifier.width(8.dp))
-                                Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
+                                Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                             }
                         }
                     }
@@ -149,8 +149,8 @@ private fun SwipeMenu(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.secondary,
-        contentColor = MaterialTheme.colorScheme.onSecondary,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             MenuItem(Icons.Filled.DriveFileMove, "Verschieben", onMove)

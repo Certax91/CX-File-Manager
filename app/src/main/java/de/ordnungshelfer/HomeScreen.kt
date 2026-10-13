@@ -10,6 +10,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.horizontalScroll
@@ -35,18 +36,18 @@ import kotlinx.coroutines.withContext
 
 /** Kategorien der Home-Seite mit Symbol und Farbe. */
 private val CATEGORY_STYLE: List<Triple<String, ImageVector, Color>> = listOf(
-    Triple("Bilder", Icons.Filled.Image, Color(0xFF4CAF50)),
-    Triple("Videos", Icons.Filled.Movie, Color(0xFFE53935)),
-    Triple("Audio", Icons.Filled.MusicNote, Color(0xFF8E24AA)),
-    Triple("PDFs", Icons.Filled.PictureAsPdf, Color(0xFFD84315)),
-    Triple("Dokumente", Icons.Filled.Description, Color(0xFF1E88E5)),
-    Triple("Tabellen", Icons.Filled.TableChart, Color(0xFF2E7D32)),
-    Triple("Präsentationen", Icons.Filled.Slideshow, Color(0xFFF57C00)),
-    Triple("Archive", Icons.Filled.FolderZip, Color(0xFF6D4C41)),
-    Triple("Apps", Icons.Filled.Android, Color(0xFF43A047)),
-    Triple("E-Books", Icons.Filled.MenuBook, Color(0xFF00897B)),
-    Triple("Kontakte & Termine", Icons.Filled.Event, Color(0xFF5E35B1)),
-    Triple(Categories.OTHER, Icons.Filled.InsertDriveFile, Color(0xFF757575)),
+    Triple("Bilder", Icons.Filled.Image, Color.Unspecified),
+    Triple("Videos", Icons.Filled.Movie, Color.Unspecified),
+    Triple("Audio", Icons.Filled.MusicNote, Color.Unspecified),
+    Triple("PDFs", Icons.Filled.PictureAsPdf, Color.Unspecified),
+    Triple("Dokumente", Icons.Filled.Description, Color.Unspecified),
+    Triple("Tabellen", Icons.Filled.TableChart, Color.Unspecified),
+    Triple("Präsentationen", Icons.Filled.Slideshow, Color.Unspecified),
+    Triple("Archive", Icons.Filled.FolderZip, Color.Unspecified),
+    Triple("Apps", Icons.Filled.Android, Color.Unspecified),
+    Triple("E-Books", Icons.Filled.MenuBook, Color.Unspecified),
+    Triple("Kontakte & Termine", Icons.Filled.Event, Color.Unspecified),
+    Triple(Categories.OTHER, Icons.Filled.InsertDriveFile, Color.Unspecified),
 )
 
 /** Eine Liste, die von der Home-Seite aus geöffnet wird (Kategorie, Tag, Favoriten, Zuletzt). */
@@ -100,10 +101,10 @@ fun HomeScreen(
             // ---------- Schnellzugriff ----------
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    QuickAction(Icons.Filled.DocumentScanner, "Scannen", Brand.Orange) { onNavigate(NavTab.SCAN) }
-                    QuickAction(Icons.Filled.FolderOpen, "Dateien", Brand.Blue) { onNavigate(NavTab.SEARCH) }
-                    QuickAction(Icons.Filled.Download, "Download", Brand.Green) { onDownload() }
-                    QuickAction(Icons.Filled.AutoAwesome, "Aufräumen", Brand.Violet) { onNavigate(NavTab.TOOLS) }
+                    QuickAction(Icons.Filled.DocumentScanner, "Scannen", MaterialTheme.colorScheme.primary) { onNavigate(NavTab.SCAN) }
+                    QuickAction(Icons.Filled.FolderOpen, "Dateien", MaterialTheme.colorScheme.primary) { onNavigate(NavTab.SEARCH) }
+                    QuickAction(Icons.Filled.Download, "Download", MaterialTheme.colorScheme.primary) { onDownload() }
+                    QuickAction(Icons.Filled.AutoAwesome, "Aufräumen", MaterialTheme.colorScheme.primary) { onNavigate(NavTab.TOOLS) }
                 }
             }
 
@@ -147,7 +148,7 @@ fun HomeScreen(
                         cats.chunked(3).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 row.forEach { (name, icon, color) ->
-                                    CategoryTile(name, icon, color, counts[name] ?: 0, Modifier.weight(1f)) {
+                                    CategoryTile(name, icon, MaterialTheme.colorScheme.onSurfaceVariant, counts[name] ?: 0, Modifier.weight(1f)) {
                                         open = HomeList(name, library.filter { Categories.of(it.node.name) == name })
                                     }
                                 }
@@ -277,7 +278,7 @@ private fun QuickAction(icon: ImageVector, label: String, color: Color, onClick:
         Surface(
             onClick = onClick,
             shape = MaterialTheme.shapes.large,
-            color = color.copy(alpha = 0.14f),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.size(60.dp),
         ) {
             Box(contentAlignment = Alignment.Center) { Icon(icon, label, tint = color, modifier = Modifier.size(28.dp)) }
@@ -296,7 +297,7 @@ private fun StorageHero(used: Long, total: Long, files: Int?, loading: Boolean, 
         Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.extraLarge)
-            .background(Brush.linearGradient(listOf(Brand.Navy, Brand.NavyLight)))
+            .background(Brush.linearGradient(listOf(Brand.AnthraciteLight, Brand.Anthracite)))
             .padding(20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -305,9 +306,9 @@ private fun StorageHero(used: Long, total: Long, files: Int?, loading: Boolean, 
                     val stroke = 12.dp.toPx()
                     val inset = stroke / 2
                     val arcSize = Size(size.width - stroke, size.height - stroke)
-                    drawArc(Color.White.copy(alpha = 0.15f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+                    drawArc(Color.White.copy(alpha = 0.10f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
                     drawArc(
-                        Brush.sweepGradient(listOf(Brand.Amber, Brand.Orange, Brand.Amber)),
+                        SolidColor(Brand.Accent),
                         -90f, 360f * fraction, false, Offset(inset, inset), arcSize,
                         style = Stroke(stroke, cap = StrokeCap.Round),
                     )
@@ -323,7 +324,7 @@ private fun StorageHero(used: Long, total: Long, files: Int?, loading: Boolean, 
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "${Formatter.formatShortFileSize(ctx, total - used)} frei",
-                    color = Brand.Amber, style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White, style = MaterialTheme.typography.headlineSmall,
                 )
                 Text(
                     "${Formatter.formatShortFileSize(ctx, used)} von ${Formatter.formatShortFileSize(ctx, total)}",
@@ -347,7 +348,7 @@ private fun MiniFileCard(e: DupEntry, onClick: () -> Unit) {
         Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box {
                 FileThumb(e.node.uri, e.node.name, 72.dp)
-                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = Color(0xFFF5B400))
+                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = MaterialTheme.colorScheme.primary)
             }
             Spacer(Modifier.height(6.dp))
             Text(e.node.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)

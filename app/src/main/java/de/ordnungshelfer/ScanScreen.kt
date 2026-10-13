@@ -270,6 +270,6 @@ private fun ScanPreview(page: Uri?) {
     ) {
         val b = bmp
         if (b != null) Image(b.asImageBitmap(), "Erste Seite", Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
-        else Icon(Icons.Filled.PictureAsPdf, null, Modifier.size(64.dp), tint = Color(0xFFD84315))
+        else Icon(Icons.Filled.PictureAsPdf, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

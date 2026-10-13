@@ -386,7 +386,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (sel) Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
-                                else IconBadge(Icons.Filled.Folder, MaterialTheme.colorScheme.primary, size = 40.dp, iconSize = 22.dp)
+                                else IconBadge(Icons.Filled.Folder, MaterialTheme.colorScheme.onSurfaceVariant, size = 40.dp, iconSize = 22.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -396,7 +396,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (u.toString() in vm.favorites) Icon(Icons.Filled.Star, null, Modifier.size(18.dp), tint = Color(0xFFF5B400))
+                                if (u.toString() in vm.favorites) Icon(Icons.Filled.Star, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                                 Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else {
@@ -483,11 +483,11 @@ private fun GridItem(vm: MainViewModel, entry: ExEntry, selected: Boolean, onCli
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(88.dp), contentAlignment = Alignment.Center) {
-            if (entry.isDir) Icon(Icons.Filled.Folder, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+            if (entry.isDir) Icon(Icons.Filled.Folder, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             else FileThumb(Uri.fromFile(entry.file), entry.file.name, 88.dp)
             if (selected) Icon(Icons.Filled.CheckCircle, null, Modifier.align(Alignment.TopEnd), tint = MaterialTheme.colorScheme.primary)
             else if (Uri.fromFile(entry.file).toString() in vm.favorites) {
-                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = Color(0xFFF5B400))
+                Icon(Icons.Filled.Star, null, Modifier.size(18.dp).align(Alignment.TopEnd), tint = MaterialTheme.colorScheme.primary)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -594,7 +594,7 @@ fun FileRow(
                 )
             }
         }
-        if (fav) Icon(Icons.Filled.Star, "Favorit", Modifier.size(18.dp), tint = Color(0xFFF5B400))
+        if (fav) Icon(Icons.Filled.Star, "Favorit", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
 

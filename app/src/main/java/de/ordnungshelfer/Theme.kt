@@ -22,72 +22,82 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Markenfarben passend zum App-Icon: tiefes Navy, Bernstein-Orange, dazu Blau und Violett als Akzente. */
+/**
+ * Farben: ruhiges Anthrazit/Dunkelgrau mit weißer und grauer Schrift.
+ * Das Blau aus dem App-Icon setzt nur Akzente (aktive Elemente, Fortschritt, Links).
+ */
 object Brand {
-    val Navy = Color(0xFF0B1530)
-    val NavyLight = Color(0xFF1B3A7A)
-    val Amber = Color(0xFFF59E0B)
-    val Orange = Color(0xFFF97316)
-    val Blue = Color(0xFF3B82F6)
-    val Violet = Color(0xFF8B5CF6)
-    val Green = Color(0xFF22C55E)
-    val Cyan = Color(0xFF22D3EE)
+    /** Akzentblau aus dem Icon */
+    val Accent = Color(0xFF4C8DF6)
+    val AccentLight = Color(0xFF8AB4FF)
+    /** Anthrazit-Töne */
+    val Anthracite = Color(0xFF1C1E21)
+    val AnthraciteLight = Color(0xFF2B2E33)
+    /** Favoriten-Stern: dezent im Akzentblau statt gelb */
+    val Star = Color(0xFF8AB4FF)
 }
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFFB45309),
+    primary = Color(0xFF1F5FCC),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFEDD5),
-    onPrimaryContainer = Color(0xFF431407),
-    secondary = Color(0xFF2563EB),
+    primaryContainer = Color(0xFFDCE6F7),
+    onPrimaryContainer = Color(0xFF0E2C5E),
+    secondary = Color(0xFF55595F),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDCE7FF),
-    onSecondaryContainer = Color(0xFF0B2A6B),
-    tertiary = Color(0xFF7C3AED),
-    tertiaryContainer = Color(0xFFEDE5FF),
-    onTertiaryContainer = Color(0xFF2E1065),
-    background = Color(0xFFF5F7FB),
-    onBackground = Color(0xFF0F172A),
-    surface = Color(0xFFF5F7FB),
-    onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFE4E8F0),
-    onSurfaceVariant = Color(0xFF516079),
+    secondaryContainer = Color(0xFFE2E4E7),
+    onSecondaryContainer = Color(0xFF1C1E21),
+    tertiary = Color(0xFF3D6FC4),
+    tertiaryContainer = Color(0xFFDCE6F7),
+    onTertiaryContainer = Color(0xFF0E2C5E),
+    background = Color(0xFFF2F3F4),
+    onBackground = Color(0xFF1A1C1E),
+    surface = Color(0xFFF2F3F4),
+    onSurface = Color(0xFF1A1C1E),
+    surfaceVariant = Color(0xFFE1E3E6),
+    onSurfaceVariant = Color(0xFF5C6066),
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFAFAFB),
     surfaceContainer = Color(0xFFFFFFFF),
-    surfaceContainerHigh = Color(0xFFEDF0F6),
-    surfaceContainerHighest = Color(0xFFE3E7EF),
-    outline = Color(0xFFB4BCCB),
-    outlineVariant = Color(0xFFDDE2EA),
-    error = Color(0xFFDC2626),
+    surfaceContainerHigh = Color(0xFFE9EBED),
+    surfaceContainerHighest = Color(0xFFE1E3E6),
+    outline = Color(0xFFB6BAC0),
+    outlineVariant = Color(0xFFD9DCE0),
+    inverseSurface = Color(0xFF2B2E33),
+    inverseOnSurface = Color(0xFFF2F3F4),
+    inversePrimary = Color(0xFF8AB4FF),
+    error = Color(0xFFC62828),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFFBBF24),
-    onPrimary = Color(0xFF2A1700),
-    primaryContainer = Color(0xFF5C3A07),
-    onPrimaryContainer = Color(0xFFFFE7B3),
-    secondary = Color(0xFF7CB0FF),
-    onSecondary = Color(0xFF06204D),
-    secondaryContainer = Color(0xFF1C3566),
-    onSecondaryContainer = Color(0xFFDCE7FF),
-    tertiary = Color(0xFFC4B5FD),
-    tertiaryContainer = Color(0xFF3B2A6E),
-    onTertiaryContainer = Color(0xFFEDE5FF),
-    background = Color(0xFF080E1E),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF080E1E),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF1E2840),
-    onSurfaceVariant = Color(0xFF9AA6BF),
-    surfaceContainerLowest = Color(0xFF050A16),
-    surfaceContainerLow = Color(0xFF0E1628),
-    surfaceContainer = Color(0xFF111A2F),
-    surfaceContainerHigh = Color(0xFF18223A),
-    surfaceContainerHighest = Color(0xFF212C46),
-    outline = Color(0xFF3A4762),
-    outlineVariant = Color(0xFF243049),
-    error = Color(0xFFF87171),
+    primary = Color(0xFF8AB4FF),
+    onPrimary = Color(0xFF0B1F3F),
+    primaryContainer = Color(0xFF243A5C),
+    onPrimaryContainer = Color(0xFFD6E3FF),
+    secondary = Color(0xFFB4B8BE),
+    onSecondary = Color(0xFF1C1E21),
+    secondaryContainer = Color(0xFF34383D),
+    onSecondaryContainer = Color(0xFFE6E7E9),
+    tertiary = Color(0xFF9DB9E8),
+    tertiaryContainer = Color(0xFF2A3A52),
+    onTertiaryContainer = Color(0xFFD6E3FF),
+    background = Color(0xFF16181A),
+    onBackground = Color(0xFFF1F2F3),
+    surface = Color(0xFF16181A),
+    onSurface = Color(0xFFF1F2F3),
+    surfaceVariant = Color(0xFF2B2E33),
+    onSurfaceVariant = Color(0xFFA3A8AF),
+    surfaceContainerLowest = Color(0xFF101113),
+    surfaceContainerLow = Color(0xFF1A1C1F),
+    surfaceContainer = Color(0xFF1F2124),
+    surfaceContainerHigh = Color(0xFF282B2F),
+    surfaceContainerHighest = Color(0xFF32353A),
+    outline = Color(0xFF4A4E55),
+    outlineVariant = Color(0xFF33363B),
+    inverseSurface = Color(0xFFE6E7E9),
+    inverseOnSurface = Color(0xFF1C1E21),
+    inversePrimary = Color(0xFF1F5FCC),
+    error = Color(0xFFE57373),
+    errorContainer = Color(0xFF5C2323),
 )
 
 private val AppShapes = Shapes(
@@ -137,7 +147,7 @@ fun AppTheme(mode: Int? = null, dynamic: Boolean? = null, content: @Composable (
 @Composable
 fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 44.dp, iconSize: Dp = 24.dp) {
     Box(
-        Modifier.size(size).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+        Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, null, Modifier.size(iconSize), tint = tint)
