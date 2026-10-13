@@ -137,6 +137,29 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     }
 
     val fileActions = rememberFileActions(vm)
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var highlight by remember { mutableStateOf<String?>(null) }
+
+    // „Anzeigen“ aus einem Hinweis: Ordner öffnen und Datei markieren
+    LaunchedEffect(vm.revealPath) {
+        val p = vm.revealPath ?: return@LaunchedEffect
+        val f = File(p)
+        query = ""
+        tagFilter = emptySet()
+        selection = emptySet()
+        currentPath = (if (f.isDirectory) f else f.parentFile ?: f).absolutePath
+        highlight = f.absolutePath
+        vm.reveal(null)
+    }
+    LaunchedEffect(listing, highlight) {
+        val h = highlight ?: return@LaunchedEffect
+        val i = listing?.indexOfFirst { it.file.absolutePath == h } ?: -1
+        if (i >= 0) {
+            listState.animateScrollToItem((i - 2).coerceAtLeast(0))
+            kotlinx.coroutines.delay(3000)
+            highlight = null
+        }
+    }
 
     /** Dateiansicht öffnen – mit allen Dateien des Ordners zum Durchwischen. */
     fun openEntry(f: File) {
@@ -347,7 +370,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                         )
                     }
                 }
-                else -> LazyColumn(Modifier.weight(1f)) {
+                else -> LazyColumn(Modifier.weight(1f), state = listState) {
                     items(l, key = { it.file.absolutePath }) { e ->
                         val u = Uri.fromFile(e.file)
                         if (e.isDir) {
@@ -383,7 +406,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                                 name = e.file.name,
                                 subtitle = "${Formatter.formatShortFileSize(ctx, e.size)} · ${formatShortDate(ctx, e.modified)}",
                                 uri = u,
-                                selected = u in selection,
+                                selected = u in selection || highlight == e.file.absolutePath,
                                 swipeEnabled = selection.isEmpty(),
                                 onClick = { clickItem(e.file, false) },
                                 onLongClick = { selection = selection + u },

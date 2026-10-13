@@ -60,9 +60,20 @@ import kotlinx.coroutines.launch
 class MainActivity : FragmentActivity() {
     private val vm: MainViewModel by viewModels()
 
+    companion object {
+        /** Pfad einer Datei, die im Explorer angezeigt werden soll („Anzeigen“). */
+        const val EXTRA_REVEAL = "anzeigen"
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_REVEAL)?.let { vm.reveal(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) intent?.getStringExtra(EXTRA_REVEAL)?.let { vm.reveal(it) }
         setContent {
             AppTheme(mode = vm.themeMode, dynamic = vm.dynamicColor) {
                 if (vm.locked) LockScreen(onUnlock = ::authenticate) else App(vm)
@@ -147,6 +158,14 @@ fun App(vm: MainViewModel = viewModel()) {
     var downloadUrl by remember { mutableStateOf("") }
     if (showDownload) {
         DownloadDialog(vm, initialUrl = downloadUrl, stream = null, onClose = { showDownload = false })
+    }
+
+    // „Anzeigen“: zum Explorer wechseln, der Ordner und Datei öffnet
+    LaunchedEffect(vm.revealPath) {
+        if (vm.revealPath != null) {
+            vm.closeViewer()
+            tab = NavTab.SEARCH
+        }
     }
 
     LaunchedEffect(vm.message) {
@@ -236,6 +255,7 @@ fun App(vm: MainViewModel = viewModel()) {
     }
     // Dateiansicht über der ganzen App (inkl. Navigationsleiste)
     vm.viewer?.let { FileViewer(vm, it) }
+    NoticeBanner(vm, Modifier.align(Alignment.BottomCenter))
     SnackbarHost(
         snackbar,
         Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 88.dp),
@@ -281,6 +301,42 @@ fun ToolsScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                 1 -> DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
                 2 -> StorageScreen(vm, onGoToSettings = onGoToSettings)
                 else -> TrashScreen(vm, onBack = null)
+            }
+        }
+    }
+}
+
+/** Hinweis-Banner mit Knöpfen (z. B. „Rückgängig“, „Öffnen“, „Anzeigen“), blendet sich nach 6 s aus. */
+@Composable
+fun NoticeBanner(vm: MainViewModel, modifier: Modifier = Modifier) {
+    val n = vm.notice
+    LaunchedEffect(n?.id) {
+        if (n != null) {
+            kotlinx.coroutines.delay(6000)
+            if (vm.notice?.id == n.id) vm.notice = null
+        }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = n != null,
+        modifier = modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 92.dp),
+        enter = androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically { it } + androidx.compose.animation.fadeOut(),
+    ) {
+        val shown = n ?: return@AnimatedVisibility
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.inverseSurface,
+            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+            shadowElevation = 8.dp,
+        ) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(shown.text, Modifier.weight(1f).padding(vertical = 10.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                shown.actions.forEach { (label, action) ->
+                    TextButton(
+                        onClick = { vm.notice = null; action() },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.inversePrimary),
+                    ) { Text(label, fontWeight = FontWeight.Bold) }
+                }
             }
         }
     }

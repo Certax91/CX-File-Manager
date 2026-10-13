@@ -99,7 +99,7 @@ fun FileViewer(vm: MainViewModel, state: MainViewModel.ViewerState) {
     val chooseCopyTarget = rememberFolderChooser(vm, "Kopieren nach") { dest -> vm.copyFile(entry, dest) }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
             TopAppBar(
                 windowInsets = WindowInsets(0),
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -163,7 +163,9 @@ fun FileViewer(vm: MainViewModel, state: MainViewModel.ViewerState) {
             }
 
             // ---------- Aktionen ----------
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
+            // Gleiche Farbe wie die Navigationsleiste der Dateiübersicht – auch hinter der Android-Leiste
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+              Column {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -174,6 +176,8 @@ fun FileViewer(vm: MainViewModel, state: MainViewModel.ViewerState) {
                     ActionButton(Icons.Filled.Share, "Teilen") { shareFiles(ctx, listOf(node.uri)) { vm.message = it } }
                     ActionButton(Icons.Filled.Delete, "Löschen") { confirmDelete = true }
                 }
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+              }
             }
         }
     }

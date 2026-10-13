@@ -74,15 +74,18 @@ fun SwipeFileRow(
     onLongClick: () -> Unit,
 ) {
     var menuOpen by remember(uri) { mutableStateOf(false) }
+    // Neuer Zustand nach jeder Dateiänderung – z. B. wenn „Rückgängig“ die Datei zurückholt
+    key(uri, vm.fsVersion) {
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { v ->
             when (v) {
-                SwipeToDismissBoxValue.EndToStart -> { vm.trashUris(listOf(uri)); false }
+                // Zeile ganz nach links hinausschieben, dann in den Papierkorb
+                SwipeToDismissBoxValue.EndToStart -> { vm.trashUris(listOf(uri)); true }
                 SwipeToDismissBoxValue.StartToEnd -> { menuOpen = true; false }
                 else -> false
             }
         },
-        positionalThreshold = { it * 0.3f },
+        positionalThreshold = { it * 0.4f },
     )
 
     AnimatedContent(targetState = menuOpen, label = "wischmenü") { open ->
@@ -127,6 +130,7 @@ fun SwipeFileRow(
                 }
             }
         }
+    }
     }
 }
 

@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -74,7 +75,28 @@ class ReceiveActivity : ComponentActivity() {
                         confirmButton = { TextButton(onClick = { finish() }) { Text("OK") } },
                     )
                 } else {
-                    DownloadDialog(vm, initialUrl = url, stream = stream, onClose = { finish() })
+                    var saved by remember { mutableStateOf<Uri?>(null) }
+                    val sv = saved
+                    if (sv == null) {
+                        DownloadDialog(vm, initialUrl = url, stream = stream, onClose = { finish() }, onSaved = { saved = it })
+                    } else {
+                        SavedBanner(
+                            uri = sv,
+                            onOpen = {
+                                Docs.nodeOf(this@ReceiveActivity, sv)?.let { n -> openFile(this@ReceiveActivity, n) { } }
+                                finish()
+                            },
+                            onShow = {
+                                startActivity(
+                                    Intent(this@ReceiveActivity, MainActivity::class.java)
+                                        .putExtra(MainActivity.EXTRA_REVEAL, sv.path)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                )
+                                finish()
+                            },
+                            onDone = { finish() },
+                        )
+                    }
                 }
             }
         }
@@ -88,7 +110,7 @@ class ReceiveActivity : ComponentActivity() {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DownloadDialog(vm: MainViewModel, initialUrl: String?, stream: Uri?, onClose: () -> Unit) {
+fun DownloadDialog(vm: MainViewModel, initialUrl: String?, stream: Uri?, onClose: () -> Unit, onSaved: ((Uri) -> Unit)? = null) {
     val ctx = LocalContext.current
     val isFile = stream != null
     var url by remember { mutableStateOf(initialUrl.orEmpty()) }
@@ -204,9 +226,9 @@ fun DownloadDialog(vm: MainViewModel, initialUrl: String?, stream: Uri?, onClose
                 onClick = {
                     if (isFile) {
                         saving = true
-                        vm.saveIncoming(stream!!, name.text, original, dest, parseTags(tagText)) { ok ->
+                        vm.saveIncoming(stream!!, name.text, original, dest, parseTags(tagText)) { saved ->
                             saving = false
-                            if (ok) onClose()
+                            if (saved != null) { if (onSaved != null) onSaved(saved) else onClose() }
                         }
                     } else {
                         val ok = vm.startDownload(validUrl!!, name.text, original, subfolder, mime, parseTags(tagText))
@@ -298,4 +320,29 @@ fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onClose) { Text("Abbrechen") } },
     )
+}
+
+/** Kleines Banner nach dem Speichern über „Teilen“: Öffnen oder im Ordner anzeigen. Schließt sich nach 8 s. */
+@Composable
+fun SavedBanner(uri: Uri, onOpen: () -> Unit, onShow: () -> Unit, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val name = remember(uri) { Docs.displayName(ctx, uri) ?: uri.lastPathSegment ?: "" }
+    LaunchedEffect(uri) {
+        delay(8000)
+        onDone()
+    }
+    Box(
+        Modifier.fillMaxSize().clickable(onClick = onDone).navigationBarsPadding().padding(16.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp, shadowElevation = 8.dp) {
+            Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text("Gespeichert: $name", Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = onOpen) { Text("Öffnen") }
+                if (Docs.isFile(uri)) TextButton(onClick = onShow) { Text("Anzeigen") }
+            }
+        }
+    }
 }

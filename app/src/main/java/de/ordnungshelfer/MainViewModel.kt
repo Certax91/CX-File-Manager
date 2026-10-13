@@ -100,7 +100,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         content = content + (saved.toString() to text.take(50_000))
                         store.saveContent(content)
                     }
-                    message = "Gespeichert: ${Docs.displayName(ctx, saved) ?: name}"
+                    savedNotice("Gespeichert", saved)
                 }
                 onDone(saved)
             }
@@ -199,6 +199,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoSortNew(on: Boolean) {
         autoSort = on
         store.saveAutoSort(on)
+    }
+
+    // ---------- Hinweis-Banner mit Knöpfen ----------
+
+    /** Hinweis unten mit Aktionen, z. B. „In den Papierkorb verschoben – Rückgängig“. */
+    data class Notice(val text: String, val actions: List<Pair<String, () -> Unit>>, val id: Long = System.nanoTime())
+
+    var notice by mutableStateOf<Notice?>(null)
+
+    fun showNotice(text: String, vararg actions: Pair<String, () -> Unit>) {
+        notice = Notice(text, actions.toList())
+    }
+
+    /** Ordner in der Suche/Explorer öffnen und die Datei markieren. */
+    var revealPath by mutableStateOf<String?>(null)
+
+    fun reveal(path: String?) { revealPath = path }
+
+    /** Hinweis „Gespeichert“ mit „Öffnen“ und „Anzeigen“. */
+    fun savedNotice(prefix: String, uri: Uri) {
+        val node = Docs.nodeOf(ctx, uri)
+        val name = node?.name ?: uri.lastPathSegment ?: ""
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        if (node != null) actions += "Öffnen" to { openFile(ctx, node) { message = it } }
+        if (Docs.isFile(uri)) actions += "Anzeigen" to { reveal(uri.path) }
+        notice = Notice("$prefix: $name", actions)
+    }
+
+    /** Gelöschte Dateien aus dem Papierkorb zurückholen (für „Rückgängig“). */
+    fun restoreTrash(entries: List<TrashEntry>) = work("Stelle wieder her …") {
+        val restored = entries.filter { Sorter.restore(ctx, it) != null }
+        withContext(Dispatchers.Main) {
+            trash = trash - restored.toSet()
+            store.saveTrash(trash)
+            index = null
+            message = if (restored.size == entries.size) "Wiederhergestellt" else "${restored.size} von ${entries.size} wiederhergestellt"
+        }
     }
 
     // ---------- Dateiansicht ----------
@@ -748,7 +785,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 remapTags(mapOf(e.node.uri.toString() to newUri.toString()), emptyMap())
                 replaceInIndex(e, updated)
-                message = "Verschoben nach ${Docs.prettyParent(newUri)}"
+                savedNotice("Verschoben", newUri)
                 onDone(updated)
             }
         }
@@ -765,7 +802,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Die Kopie bekommt dieselben Tags
                 tagsOf(e.node.uri).takeIf { it.isNotEmpty() }?.let { remapTags(emptyMap(), mapOf(newUri.toString() to it)) }
                 index = index?.let { listOf(copy) + it }
-                message = "Kopiert nach ${Docs.prettyParent(newUri)}"
+                savedNotice("Kopiert", newUri)
             }
         }
     }
@@ -773,7 +810,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- Download-Manager ----------
 
     /** Geteilte Datei (Anhang, Datei aus anderer App) unter eigenem Namen speichern. */
-    fun saveIncoming(source: Uri, wanted: String, original: String, dest: String?, newTags: List<String>, onDone: (Boolean) -> Unit) {
+    fun saveIncoming(source: Uri, wanted: String, original: String, dest: String?, newTags: List<String>, onDone: (Uri?) -> Unit) {
         val name = fixFileName(wanted, original)
         if (name.isEmpty()) { message = "Bitte einen Dateinamen eingeben"; return }
         work("Speichere …") {
@@ -784,9 +821,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     if (newTags.isNotEmpty()) remapTags(emptyMap(), mapOf(saved.toString() to newTags))
                     index = null
-                    message = "Gespeichert: ${Docs.displayName(ctx, saved) ?: name}"
+                    savedNotice("Gespeichert", saved)
                 }
-                onDone(saved != null)
+                onDone(saved)
             }
         }
     }
@@ -847,7 +884,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 trash = trash + added
                 index = null
                 val failed = uris.size - added.size
-                message = if (failed == 0) "${added.size} in den Papierkorb verschoben" else "${added.size} verschoben, $failed nicht möglich"
+                val text = if (failed == 0) "${added.size} in den Papierkorb verschoben" else "${added.size} verschoben, $failed nicht möglich"
+                if (added.isNotEmpty()) showNotice(text, "Rückgängig" to { restoreTrash(added) }) else message = text
                 onDone()
             }
         }
@@ -862,7 +900,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.Main) {
                 trash = trash + added
                 index = null
-                message = if (added.isEmpty()) "Löschen nicht möglich" else "In den Papierkorb verschoben"
+                if (added.isEmpty()) message = "Löschen nicht möglich"
+                else showNotice("In den Papierkorb verschoben", "Rückgängig" to { restoreTrash(added) })
                 if (added.isNotEmpty()) onDone()
             }
         }
