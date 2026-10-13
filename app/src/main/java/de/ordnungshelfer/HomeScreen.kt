@@ -129,7 +129,7 @@ fun HomeScreen(
                     Hint("Noch keine Favoriten. Öffne eine Datei und tippe oben auf den Stern.")
                 } else {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        favEntries.take(12).forEach { e -> MiniFileCard(e) { editing = e } }
+                        favEntries.take(12).forEach { e -> MiniFileCard(e) { vm.openViewer(favEntries, favEntries.indexOf(e)) } }
                     }
                 }
             }
@@ -195,7 +195,7 @@ fun HomeScreen(
                             subtitle = "${e.path} · ${formatShortDate(ctx, e.node.modified)}",
                             uri = e.node.uri,
                             selected = false,
-                            onClick = { editing = e },
+                            onClick = { vm.openViewer(library.take(8), library.take(8).indexOf(e)) },
                             onLongClick = { editing = e },
                         )
                     }
@@ -212,6 +212,7 @@ fun HomeScreen(
 @Composable
 private fun HomeListScreen(vm: MainViewModel, list: HomeList, onBack: () -> Unit, onOpen: (DupEntry) -> Unit) {
     val ctx = LocalContext.current
+    val fileActions = rememberFileActions(vm)
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Zurück") }
@@ -225,13 +226,15 @@ private fun HomeListScreen(vm: MainViewModel, list: HomeList, onBack: () -> Unit
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(list.entries, key = { it.node.uri.toString() }) { e ->
-                    FileRow(
+                    SwipeFileRow(
                         vm = vm,
+                        actions = fileActions,
                         name = e.node.name,
                         subtitle = "${e.path} · ${Formatter.formatShortFileSize(ctx, e.node.size)} · ${formatShortDate(ctx, e.node.modified)}",
                         uri = e.node.uri,
                         selected = false,
-                        onClick = { onOpen(e) },
+                        swipeEnabled = Docs.isFile(e.node.uri),
+                        onClick = { vm.openViewer(list.entries, list.entries.indexOf(e)) },
                         onLongClick = { onOpen(e) },
                     )
                 }

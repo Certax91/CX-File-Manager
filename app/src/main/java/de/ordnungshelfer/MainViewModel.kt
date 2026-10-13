@@ -201,6 +201,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.saveAutoSort(on)
     }
 
+    // ---------- Dateiansicht ----------
+
+    /** Geöffnete Dateiansicht: Liste zum Durchwischen und Startposition. */
+    data class ViewerState(val entries: List<DupEntry>, val index: Int)
+
+    var viewer by mutableStateOf<ViewerState?>(null)
+        private set
+
+    /** Zählt jede Dateiänderung hoch, damit Listen sich neu laden. */
+    var fsVersion by mutableIntStateOf(0)
+        private set
+
+    fun openViewer(entries: List<DupEntry>, index: Int) {
+        if (entries.isNotEmpty()) viewer = ViewerState(entries, index)
+    }
+
+    fun closeViewer() {
+        viewer = null
+        fsVersion++
+    }
+
     // ---------- Darstellung ----------
 
     /** 0 = wie System, 1 = hell, 2 = dunkel */
@@ -961,7 +982,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { message = "Fehler: ${e.message}" }
             } finally {
-                withContext(Dispatchers.Main) { busy = null }
+                withContext(Dispatchers.Main) {
+                    busy = null
+                    fsVersion++
+                }
             }
         }
     }

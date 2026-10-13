@@ -162,6 +162,7 @@ fun App(vm: MainViewModel = viewModel()) {
         showDownload = true
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -215,7 +216,6 @@ fun App(vm: MainViewModel = viewModel()) {
                 }
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             Crossfade(targetState = tab, label = "seite") { t ->
@@ -232,8 +232,15 @@ fun App(vm: MainViewModel = viewModel()) {
                     NavTab.SETTINGS -> SettingsScreen(vm)
                 }
             }
-            vm.busy?.let { BusyOverlay(it) }
         }
+    }
+    // Dateiansicht über der ganzen App (inkl. Navigationsleiste)
+    vm.viewer?.let { FileViewer(vm, it) }
+    SnackbarHost(
+        snackbar,
+        Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 88.dp),
+    )
+    vm.busy?.let { BusyOverlay(it) }
     }
 }
 

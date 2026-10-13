@@ -93,7 +93,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     }
 
     // Inhalt des aktuellen Ordners
-    val listing by produceState<List<ExEntry>?>(null, currentPath, refresh, sort) {
+    val listing by produceState<List<ExEntry>?>(null, currentPath, refresh, sort, vm.fsVersion) {
         value = withContext(Dispatchers.IO) {
             val items = (current.listFiles() ?: emptyArray())
                 .filter { !it.name.startsWith(".") }
@@ -136,11 +136,20 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
         }
     }
 
+    val fileActions = rememberFileActions(vm)
+
+    /** Dateiansicht öffnen – mit allen Dateien des Ordners zum Durchwischen. */
     fun openEntry(f: File) {
-        val uri = Uri.fromFile(f)
-        val node = Docs.nodeOf(ctx, uri) ?: return
-        val parent = f.parentFile ?: f
-        editing = DupEntry(node, Docs.prettyPath(Uri.fromFile(parent)), Uri.fromFile(parent), Uri.fromFile(parent))
+        val files = listing.orEmpty().filter { !it.isDir }
+        val parentUri = Uri.fromFile(current)
+        val path = Docs.prettyPath(parentUri)
+        val entries = files.map { e ->
+            val u = Uri.fromFile(e.file)
+            val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extensionOf(e.file.name)) ?: "application/octet-stream"
+            DupEntry(Node(u, e.file.name, mime, e.size, e.modified), path, parentUri, parentUri)
+        }
+        val idx = files.indexOfFirst { it.file == f }.coerceAtLeast(0)
+        vm.openViewer(entries, idx)
     }
 
     fun clickItem(f: File, isDir: Boolean) {
@@ -299,14 +308,17 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                     )
                     LazyColumn(Modifier.weight(1f)) {
                         items(results, key = { it.node.uri.toString() }) { e ->
-                            FileRow(
+                            SwipeFileRow(
                                 vm = vm,
+                                actions = fileActions,
                                 name = e.node.name,
                                 subtitle = "${e.path} · ${Formatter.formatShortFileSize(ctx, e.node.size)}",
                                 uri = e.node.uri,
                                 selected = e.node.uri in selection,
+                                swipeEnabled = selection.isEmpty(),
                                 onClick = {
-                                    if (selection.isNotEmpty()) selection = selection.toggle(e.node.uri) else editing = e
+                                    if (selection.isNotEmpty()) selection = selection.toggle(e.node.uri)
+                                    else vm.openViewer(results, results.indexOf(e))
                                 },
                                 onLongClick = { selection = selection + e.node.uri },
                             )
@@ -365,12 +377,14 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                                 Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else {
-                            FileRow(
+                            SwipeFileRow(
                                 vm = vm,
+                                actions = fileActions,
                                 name = e.file.name,
                                 subtitle = "${Formatter.formatShortFileSize(ctx, e.size)} · ${formatShortDate(ctx, e.modified)}",
                                 uri = u,
                                 selected = u in selection,
+                                swipeEnabled = selection.isEmpty(),
                                 onClick = { clickItem(e.file, false) },
                                 onLongClick = { selection = selection + u },
                             )
