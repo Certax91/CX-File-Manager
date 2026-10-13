@@ -147,7 +147,7 @@ class WatchService : Service() {
             if (suggestion != null && Store(this).loadAutoSort()) {
                 val moved = RuleApply.apply(this, f, suggestion.first, suggestion.second)
                 if (moved != null) {
-                    notifyDone(this, notificationId(key), "Einsortiert: ${f.name} → ${Docs.prettyPath(Uri.fromFile(moved.parentFile!!))}", 8000)
+                    notifyDone(this, notificationId(key), "Einsortiert: ${f.name} → ${Docs.prettyPath(Uri.fromFile(moved.parentFile!!))}", 8000, moved)
                     return@Runnable
                 }
             }
@@ -251,15 +251,37 @@ class WatchService : Service() {
         }
 
         /** Benachrichtigung nach dem Umbenennen kurz bestätigen und dann ausblenden. */
-        fun notifyDone(ctx: Context, id: Int, text: String, timeout: Long = 4000) {
+        fun notifyDone(ctx: Context, id: Int, text: String, timeout: Long = 4000, file: File? = null) {
             if (!canNotify(ctx)) return
-            val n = NotificationCompat.Builder(ctx, CHANNEL_NEW)
+            val b = NotificationCompat.Builder(ctx, CHANNEL_NEW)
                 .setSmallIcon(R.drawable.ic_notify)
                 .setContentTitle(text)
                 .setSilent(true)
-                .setTimeoutAfter(timeout)
-                .build()
-            runCatching { NotificationManagerCompat.from(ctx).notify(id, n) }
+                .setAutoCancel(true)
+                .setTimeoutAfter(if (file != null) 15_000 else timeout)
+            if (file != null && file.exists()) {
+                // „Öffnen“: Datei in passender App öffnen
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+                val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extensionOf(file.name)) ?: "*/*"
+                val open = PendingIntent.getActivity(
+                    ctx, id + 2,
+                    Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                // „Anzeigen“: im Explorer der App zeigen
+                val show = PendingIntent.getActivity(
+                    ctx, id + 3,
+                    Intent(ctx, MainActivity::class.java)
+                        .putExtra(MainActivity.EXTRA_REVEAL, file.absolutePath)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                b.addAction(R.drawable.ic_notify, "Öffnen", open)
+                b.addAction(R.drawable.ic_notify, "Anzeigen", show)
+                b.setContentIntent(show)
+            }
+            runCatching { NotificationManagerCompat.from(ctx).notify(id, b.build()) }
         }
     }
 }
@@ -287,7 +309,7 @@ class RenameReceiver : BroadcastReceiver() {
         tags[Uri.fromFile(f).toString()]?.let { t ->
             store.saveTags(tags - Uri.fromFile(f).toString() + (newUri.toString() to t))
         }
-        WatchService.notifyDone(ctx, id, "Umbenannt in „$name“")
+        WatchService.notifyDone(ctx, id, "Umbenannt in „$name“", file = newUri.path?.let { File(it) })
     }
 }
 
@@ -340,6 +362,7 @@ class ApplyRuleReceiver : BroadcastReceiver() {
         WatchService.notifyDone(
             ctx, id,
             if (moved != null) "Verschoben nach ${Docs.prettyPath(Uri.fromFile(moved.parentFile!!))}" else "Verschieben nicht möglich",
+            file = moved,
         )
     }
 }

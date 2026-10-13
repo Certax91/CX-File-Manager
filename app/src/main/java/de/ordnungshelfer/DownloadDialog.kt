@@ -65,8 +65,28 @@ class ReceiveActivity : ComponentActivity() {
                         vm.message = null
                     }
                 }
-                if (watched != null) {
-                    NewFileDialog(vm, watched, onClose = { finish() })
+                var saved by remember { mutableStateOf<Uri?>(null) }
+                val sv = saved
+                if (sv != null) {
+                    // Nach dem Speichern: Banner mit „Öffnen“ und „Anzeigen“
+                    SavedBanner(
+                        uri = sv,
+                        onOpen = {
+                            Docs.nodeOf(this@ReceiveActivity, sv)?.let { n -> openFile(this@ReceiveActivity, n) { } }
+                            finish()
+                        },
+                        onShow = {
+                            startActivity(
+                                Intent(this@ReceiveActivity, MainActivity::class.java)
+                                    .putExtra(MainActivity.EXTRA_REVEAL, sv.path)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            )
+                            finish()
+                        },
+                        onDone = { finish() },
+                    )
+                } else if (watched != null) {
+                    NewFileDialog(vm, watched, onClose = { finish() }, onSaved = { saved = it })
                 } else if (stream == null && url == null) {
                     AlertDialog(
                         onDismissRequest = { finish() },
@@ -75,28 +95,7 @@ class ReceiveActivity : ComponentActivity() {
                         confirmButton = { TextButton(onClick = { finish() }) { Text("OK") } },
                     )
                 } else {
-                    var saved by remember { mutableStateOf<Uri?>(null) }
-                    val sv = saved
-                    if (sv == null) {
-                        DownloadDialog(vm, initialUrl = url, stream = stream, onClose = { finish() }, onSaved = { saved = it })
-                    } else {
-                        SavedBanner(
-                            uri = sv,
-                            onOpen = {
-                                Docs.nodeOf(this@ReceiveActivity, sv)?.let { n -> openFile(this@ReceiveActivity, n) { } }
-                                finish()
-                            },
-                            onShow = {
-                                startActivity(
-                                    Intent(this@ReceiveActivity, MainActivity::class.java)
-                                        .putExtra(MainActivity.EXTRA_REVEAL, sv.path)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                )
-                                finish()
-                            },
-                            onDone = { finish() },
-                        )
-                    }
+                    DownloadDialog(vm, initialUrl = url, stream = stream, onClose = { finish() }, onSaved = { saved = it })
                 }
             }
         }
@@ -250,7 +249,7 @@ private fun selectBaseName(name: String): TextFieldValue {
 /** Neue Datei im Download-Ordner: Name ändern, optional verschieben und Tags vergeben. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit) {
+fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit, onSaved: ((Uri) -> Unit)? = null) {
     if (!file.exists()) {
         AlertDialog(
             onDismissRequest = onClose,
@@ -311,9 +310,9 @@ fun NewFileDialog(vm: MainViewModel, file: java.io.File, onClose: () -> Unit) {
                 enabled = !saving && name.text.isNotBlank(),
                 onClick = {
                     saving = true
-                    vm.processNewFile(file, name.text, dest, parseTags(tagText)) { ok ->
+                    vm.processNewFile(file, name.text, dest, parseTags(tagText)) { saved ->
                         saving = false
-                        if (ok) onClose()
+                        if (saved != null) { if (onSaved != null) onSaved(saved) else onClose() }
                     }
                 },
             ) { Text("Speichern") }

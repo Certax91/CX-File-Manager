@@ -155,7 +155,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Neue Datei aus der Überwachung: umbenennen, ggf. verschieben, Tags vergeben – in einem Schritt. */
-    fun processNewFile(file: File, wanted: String, dest: String?, newTags: List<String>, onDone: (Boolean) -> Unit) {
+    fun processNewFile(file: File, wanted: String, dest: String?, newTags: List<String>, onDone: (Uri?) -> Unit) {
         val name = if (file.isDirectory) wanted.trim().replace('/', '_') else fixFileName(wanted, file.name)
         if (name.isEmpty()) { message = "Bitte einen Namen eingeben"; return }
         work("Speichere …") {
@@ -186,9 +186,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 tags = (tags - original.toString()).let { if (combined.isEmpty()) it else it + (current.toString() to combined) }
                 store.saveTags(tags)
                 index = null
-                message = if (ok) "Gespeichert: ${Docs.displayName(ctx, current) ?: name}"
-                else "Nicht alles hat geklappt – gibt es den Namen am Ziel schon?"
-                onDone(ok)
+                if (ok) savedNotice("Gespeichert", current)
+                else message = "Nicht alles hat geklappt – gibt es den Namen am Ziel schon?"
+                onDone(if (ok) current else null)
             }
         }
     }
