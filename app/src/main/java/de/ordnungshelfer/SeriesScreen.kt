@@ -512,7 +512,7 @@ private fun SeriesPreview(vm: MainViewModel, id: Long, onClose: () -> Unit) {
                             if (s.fromCamera) "Kamera" else null,
                             if (s.fromWhatsApp) "WhatsApp" else null,
                             if (s.fromOther) "Andere" else null,
-                        ).joinToString(", ") + ").")
+                        ).joinToString(", ") + ")."
                     else "Alle ${s.assigned.size} Fotos der Serie sind bereits benannt und getaggt.",
                 )
             }
