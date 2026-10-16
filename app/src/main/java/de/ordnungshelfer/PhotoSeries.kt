@@ -56,13 +56,17 @@ data class PhotoSeries(
         }
 
     companion object {
-        const val DEFAULT_PATTERN = "{name}_{datum}_{nr}"
+        const val DEFAULT_PATTERN = "{JJMMTT}_{HHMM}_{name}_{nr}"
+        /** früheres Standardmuster – gespeicherte Serien damit bekommen das neue */
+        const val OLD_DEFAULT = "{name}_{datum}_{nr}"
 
         /** Platzhalter für das Namensmuster: Text → Erklärung */
         val PLACEHOLDERS = listOf(
             "{name}" to "Name der Serie",
-            "{datum}" to "Aufnahmedatum (2026-10-12)",
-            "{uhrzeit}" to "Uhrzeit (14-22-05)",
+            "{JJMMTT}" to "Aufnahmedatum kurz (261012)",
+            "{HHMM}" to "Uhrzeit kurz (1422)",
+            "{datum}" to "Aufnahmedatum lang (2026-10-12)",
+            "{uhrzeit}" to "Uhrzeit lang (14-22-05)",
             "{nr}" to "Laufende Nummer (001)",
             "{reisetag}" to "Tag der Reise (1, 2, 3 …)",
         )
@@ -104,7 +108,7 @@ object SeriesEngine {
                     end = o.getLong("end"),
                     tags = o.optJSONArray("tags")?.let { t -> List(t.length()) { t.getString(it) } } ?: emptyList(),
                     rename = o.optBoolean("rename", true),
-                    pattern = o.optString("pattern", PhotoSeries.DEFAULT_PATTERN),
+                    pattern = o.optString("pattern", PhotoSeries.DEFAULT_PATTERN).let { if (it == PhotoSeries.OLD_DEFAULT) PhotoSeries.DEFAULT_PATTERN else it },
                     autoNew = o.optBoolean("autoNew", true),
                     videos = o.optBoolean("videos", true),
                     cameraOnly = o.optBoolean("cameraOnly", true),
@@ -217,6 +221,8 @@ object SeriesEngine {
         val t: LocalDateTime = Instant.ofEpochMilli(p.taken).atZone(ZoneId.systemDefault()).toLocalDateTime()
         val base = s.pattern.ifBlank { PhotoSeries.DEFAULT_PATTERN }
             .replace("{name}", s.name.trim())
+            .replace("{JJMMTT}", t.format(DateTimeFormatter.ofPattern("yyMMdd")), ignoreCase = true)
+            .replace("{HHMM}", t.format(DateTimeFormatter.ofPattern("HHmm")), ignoreCase = true)
             .replace("{datum}", t.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")))
             .replace("{uhrzeit}", t.format(DateTimeFormatter.ofPattern("HH-mm-ss")))
             .replace("{nr}", nr.toString().padStart(3, '0'))
