@@ -259,7 +259,11 @@ class WatchService : Service() {
             val open = PendingIntent.getActivity(
                 ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
             )
-            val what = if (s.rename) "benannt und getaggt" else "getaggt"
+            val what = when {
+                s.moveToFolder -> "einsortiert in ${s.folderName}"
+                s.rename -> "benannt und getaggt"
+                else -> "getaggt"
+            }
             val n = NotificationCompat.Builder(ctx, CHANNEL_SERIES)
                 .setSmallIcon(R.drawable.ic_notify)
                 .setContentTitle("Fotoserie „${s.name}“")

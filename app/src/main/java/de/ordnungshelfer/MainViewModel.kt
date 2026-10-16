@@ -198,7 +198,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val renamed = changes.count { it.oldPath != it.newPath }
             val text = when {
                 changes.isEmpty() -> "Keine Fotos bearbeitet"
-                renamed > 0 -> "${changes.size} Fotos getaggt, $renamed umbenannt"
+                renamed > 0 -> "${changes.size} Fotos getaggt, $renamed umbenannt bzw. verschoben"
                 else -> "${changes.size} Fotos getaggt"
             }
             if (changes.isEmpty()) message = text

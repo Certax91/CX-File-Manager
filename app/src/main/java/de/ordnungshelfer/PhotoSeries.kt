@@ -35,7 +35,23 @@ data class PhotoSeries(
     val created: Long = System.currentTimeMillis(),
     /** bereits bearbeitete Dateien: Pfad → laufende Nummer */
     val assigned: Map<String, Int> = emptyMap(),
+    /** Fotos in einen eigenen Unterordner mit dem Namen der Serie verschieben */
+    val moveToFolder: Boolean = true,
+    /** Hauptordner (absoluter Pfad), in dem der Unterordner angelegt wird. null = DCIM */
+    val baseFolder: String? = null,
 ) {
+    /** Name des Unterordners (Name der Serie ohne unerlaubte Zeichen) */
+    val folderName: String
+        get() = name.trim().replace(Regex("""[\\/:*?"<>|]"""), "_").trim('.', ' ').ifEmpty { "Fotoserie" }
+
+    /** Hauptordner – ohne Auswahl der Kamera-Ordner DCIM */
+    val baseDir: File
+        get() = baseFolder?.let { File(it) }
+            ?: android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM)
+
+    /** Zielordner der Fotos, null = Fotos bleiben, wo sie sind */
+    val targetDir: File? get() = if (moveToFolder) File(baseDir, folderName) else null
+
     val startDate: LocalDate get() = LocalDate.ofEpochDay(start)
     val endDate: LocalDate get() = LocalDate.ofEpochDay(end)
 
@@ -77,7 +93,9 @@ data class PhotoSeries(
 data class SeriesPhoto(val path: String, val name: String, val taken: Long, val added: Long, val mime: String)
 
 /** Vorschau-Zeile: Foto → neuer Name und Nummer */
-data class SeriesItem(val photo: SeriesPhoto, val nr: Int, val newName: String, val day: Int)
+data class SeriesItem(val photo: SeriesPhoto, val nr: Int, val newName: String, val day: Int, val dir: File) {
+    val newPath: String get() = File(dir, newName).absolutePath
+}
 
 /** Was beim Anwenden passiert ist – für „Rückgängig“. */
 data class SeriesChange(val seriesId: Long, val oldPath: String, val newPath: String, val tagsBefore: List<String>?)
@@ -114,6 +132,8 @@ object SeriesEngine {
                     cameraOnly = o.optBoolean("cameraOnly", true),
                     created = o.optLong("created", 0L),
                     assigned = asg?.keys()?.asSequence()?.associateWith { asg.getInt(it) } ?: emptyMap(),
+                    moveToFolder = o.optBoolean("move", true),
+                    baseFolder = o.optString("base", "").ifEmpty { null },
                 )
             }
         }.getOrDefault(emptyList())
@@ -133,6 +153,8 @@ object SeriesEngine {
                     .put("autoNew", s.autoNew).put("videos", s.videos).put("cameraOnly", s.cameraOnly)
                     .put("created", s.created)
                     .put("assigned", asg)
+                    .put("move", s.moveToFolder)
+                    .put("base", s.baseFolder ?: "")
             )
         }
         prefs(ctx).edit().putString("photoSeries", a.toString()).commit()
@@ -209,8 +231,11 @@ object SeriesEngine {
         return photos.map { p ->
             val nr = next++
             val day = (localDate(p.taken).toEpochDay() - s.start + 1).toInt().coerceAtLeast(1)
-            val name = if (s.rename) uniqueIn(File(p.path).parentFile, formatName(s, p, nr, day), p.name, usedNames) else p.name
-            SeriesItem(p, nr, name, day)
+            val src = File(p.path)
+            val dir = s.targetDir ?: src.parentFile ?: File("/")
+            val wanted = if (s.rename) formatName(s, p, nr, day) else p.name
+            val name = uniqueIn(dir, wanted, src, usedNames)
+            SeriesItem(p, nr, name, day, dir)
         }
     }
 
@@ -240,16 +265,39 @@ object SeriesEngine {
         return formatName(s.copy(name = s.name.ifBlank { "Urlaub" }), SeriesPhoto("", "x.jpg", t, t, "image/jpeg"), 1, 1)
     }
 
-    private fun uniqueIn(dir: File?, wanted: String, current: String, used: MutableSet<String>): String {
-        if (wanted == current) return wanted.also { used += it }
+    /** Anzeige des Zielordners, z. B. „DCIM/Mallorca 2026“ */
+    fun targetLabel(s: PhotoSeries): String {
+        val d = s.copy(name = s.name.ifBlank { "Urlaub" }).targetDir ?: return "Fotos bleiben in ihrem Ordner"
+        return Docs.prettyPath(android.net.Uri.fromFile(d)).removePrefix("Interner Speicher/")
+    }
+
+    /** Freier Name im Zielordner (auch gegenüber den anderen Fotos dieser Vorschau). */
+    private fun uniqueIn(dir: File, wanted: String, src: File, used: MutableSet<String>): String {
         val dot = wanted.lastIndexOf('.')
         val base = if (dot > 0) wanted.substring(0, dot) else wanted
         val ext = if (dot > 0) wanted.substring(dot) else ""
         var name = wanted
         var i = 2
-        while (name in used || (dir != null && File(dir, name).exists())) name = "$base ($i)$ext".also { i++ }
-        used += name
+        while (true) {
+            val f = File(dir, name)
+            val taken = f.absolutePath in used || (f.exists() && f.absolutePath != src.absolutePath)
+            if (!taken) break
+            name = "$base ($i)$ext"
+            i++
+        }
+        used += File(dir, name).absolutePath
         return name
+    }
+
+    /** Verschieben/Umbenennen – auch auf eine Speicherkarte (dann kopieren und Original löschen). */
+    private fun moveFile(src: File, dest: File): Boolean {
+        if (dest.exists()) return false
+        dest.parentFile?.mkdirs()
+        if (src.renameTo(dest)) return true
+        return runCatching {
+            src.copyTo(dest)
+            if (dest.length() == src.length()) src.delete() else { dest.delete(); false }
+        }.getOrDefault(false).also { ok -> if (!ok && dest.exists() && src.exists()) dest.delete() }
     }
 
     // ---------- Anwenden ----------
@@ -270,10 +318,11 @@ object SeriesEngine {
             val src = File(it.photo.path)
             if (!src.exists()) continue
             var dest = src
-            if (s.rename && it.newName != src.name) {
-                val target = File(src.parentFile, it.newName)
+            val target = File(it.newPath)
+            if (target.absolutePath != src.absolutePath) {
+                target.parentFile?.let { d -> if (!d.exists()) { WatchState.ignore(d.absolutePath); d.mkdirs() } }
                 WatchState.ignore(target.absolutePath)
-                if (!target.exists() && src.renameTo(target)) {
+                if (moveFile(src, target)) {
                     dest = target
                     scan += src.absolutePath
                     scan += target.absolutePath
@@ -310,10 +359,12 @@ object SeriesEngine {
             var now = cur
             if (c.newPath != c.oldPath) {
                 val old = File(c.oldPath)
-                if (cur.exists() && !old.exists() && cur.renameTo(old)) {
+                if (cur.exists() && !old.exists() && moveFile(cur, old)) {
                     now = old
                     scan += cur.absolutePath
                     scan += old.absolutePath
+                    // leer gewordenen Serien-Ordner wieder entfernen
+                    cur.parentFile?.let { d -> if (d.absolutePath != old.parentFile?.absolutePath && d.list()?.isEmpty() == true) d.delete() }
                 }
             }
             val curKey = android.net.Uri.fromFile(cur).toString()

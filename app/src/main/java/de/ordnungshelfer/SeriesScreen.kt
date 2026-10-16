@@ -174,6 +174,14 @@ private fun SeriesCard(
                     }
                 }
             }
+            if (s.moveToFolder) {
+                Text(
+                    "Ordner: " + SeriesEngine.targetLabel(s),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (s.rename) {
                 Text(
                     "Name: " + SeriesEngine.example(s),
@@ -218,12 +226,18 @@ private fun SeriesEditor(
     var autoNew by remember { mutableStateOf(initial.autoNew) }
     var videos by remember { mutableStateOf(initial.videos) }
     var cameraOnly by remember { mutableStateOf(initial.cameraOnly) }
+    var moveToFolder by remember { mutableStateOf(initial.moveToFolder) }
+    var baseFolder by remember { mutableStateOf(initial.baseFolder) }
     var pickDates by remember { mutableStateOf(false) }
+    val chooseBase = rememberFolderChooser(vm, "Hauptordner für die Fotoserie") { stored ->
+        Uri.parse(stored).path?.let { baseFolder = it }
+    }
 
     fun current() = initial.copy(
         name = name.trim(), start = start, end = end, tags = normalizeTags(tagList + parseTags(tagInput)),
         rename = rename, pattern = pattern.ifBlank { PhotoSeries.DEFAULT_PATTERN },
         autoNew = autoNew, videos = videos, cameraOnly = cameraOnly,
+        moveToFolder = moveToFolder, baseFolder = baseFolder,
     )
 
     fun addTags(text: String) {
@@ -356,6 +370,54 @@ private fun SeriesEditor(
                 }
             }
 
+            SectionCard("Ablage") {
+                SwitchRow(
+                    "In eigenen Ordner verschieben",
+                    "Unterordner mit dem Namen der Serie",
+                    moveToFolder,
+                ) { moveToFolder = it }
+                if (moveToFolder) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { baseFolder = null }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = baseFolder == null, onClick = { baseFolder = null })
+                            Column(Modifier.weight(1f)) {
+                                Text("Im Kamera-Ordner (DCIM)", style = MaterialTheme.typography.bodyLarge)
+                                Text("Erscheint in der Galerie als eigenes Album", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chooseBase() }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = baseFolder != null, onClick = { chooseBase() })
+                            Column(Modifier.weight(1f)) {
+                                Text("In einem anderen Hauptordner", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    baseFolder?.let { Docs.prettyPath(Uri.fromFile(File(it))) } ?: "Ordner auswählen …",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (baseFolder != null) IconButton(onClick = chooseBase) { Icon(Icons.Filled.FolderOpen, "Ändern") }
+                        }
+                    }
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Zielordner", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(SeriesEngine.targetLabel(current()), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             SectionCard("Welche Fotos") {
                 SwitchRow(
                     "Neue Fotos automatisch",
@@ -419,7 +481,11 @@ private fun SeriesPreview(vm: MainViewModel, id: Long, onClose: () -> Unit) {
             IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
             Column(Modifier.weight(1f)) {
                 Text(s.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(s.rangeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    s.rangeLabel + if (s.moveToFolder) "  →  " + SeriesEngine.targetLabel(s) else "",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
             val list = items
             if (!list.isNullOrEmpty()) {
@@ -510,7 +576,11 @@ private fun SeriesPreview(vm: MainViewModel, id: Long, onClose: () -> Unit) {
                             Icon(Icons.Filled.AutoFixHigh, null)
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                (if (s.rename) "${selected.size} Fotos benennen & taggen" else "${selected.size} Fotos taggen")
+                                "${selected.size} Fotos " + listOfNotNull(
+                                    if (s.rename) "benennen" else null,
+                                    "taggen",
+                                    if (s.moveToFolder) "verschieben" else null,
+                                ).let { w -> if (w.size == 1) w[0] else w.dropLast(1).joinToString(", ") + " & " + w.last() }
                             )
                         }
                     }
