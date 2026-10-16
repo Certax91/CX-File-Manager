@@ -29,8 +29,10 @@ data class PhotoSeries(
     /** neue Fotos im Zeitraum sofort automatisch bearbeiten */
     val autoNew: Boolean = true,
     val videos: Boolean = true,
-    /** nur Kamera-Fotos (DCIM), keine Screenshots, WhatsApp-Bilder usw. */
-    val cameraOnly: Boolean = true,
+    /** Quellen: Kamera (DCIM), WhatsApp, alles andere (Screenshots, Downloads …) */
+    val fromCamera: Boolean = true,
+    val fromWhatsApp: Boolean = true,
+    val fromOther: Boolean = false,
     /** angelegt (ms) – automatisch werden nur Fotos bearbeitet, die danach hinzukamen */
     val created: Long = System.currentTimeMillis(),
     /** bereits bearbeitete Dateien: Pfad → laufende Nummer */
@@ -129,7 +131,10 @@ object SeriesEngine {
                     pattern = o.optString("pattern", PhotoSeries.DEFAULT_PATTERN).let { if (it == PhotoSeries.OLD_DEFAULT) PhotoSeries.DEFAULT_PATTERN else it },
                     autoNew = o.optBoolean("autoNew", true),
                     videos = o.optBoolean("videos", true),
-                    cameraOnly = o.optBoolean("cameraOnly", true),
+                    fromCamera = o.optBoolean("fromCamera", true),
+                    fromWhatsApp = o.optBoolean("fromWhatsApp", true),
+                    // ältere Serien: „nur Kamera“ aus = alle Quellen
+                    fromOther = o.optBoolean("fromOther", !o.optBoolean("cameraOnly", true)),
                     created = o.optLong("created", 0L),
                     assigned = asg?.keys()?.asSequence()?.associateWith { asg.getInt(it) } ?: emptyMap(),
                     moveToFolder = o.optBoolean("move", true),
@@ -150,7 +155,8 @@ object SeriesEngine {
                     .put("start", s.start).put("end", s.end)
                     .put("tags", JSONArray(s.tags))
                     .put("rename", s.rename).put("pattern", s.pattern)
-                    .put("autoNew", s.autoNew).put("videos", s.videos).put("cameraOnly", s.cameraOnly)
+                    .put("autoNew", s.autoNew).put("videos", s.videos)
+                    .put("fromCamera", s.fromCamera).put("fromWhatsApp", s.fromWhatsApp).put("fromOther", s.fromOther)
                     .put("created", s.created)
                     .put("assigned", asg)
                     .put("move", s.moveToFolder)
@@ -180,21 +186,25 @@ object SeriesEngine {
             add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE)
             if (s.videos) add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO)
         }.joinToString(",")
+        val taken = MediaStore.Images.ImageColumns.DATE_TAKEN
+        val modified = MediaStore.MediaColumns.DATE_MODIFIED
+        // Grob vorfiltern (etwas großzügiger wegen Zeitzonen); WhatsApp-Dateien zusätzlich über das Datum im Namen
+        val pad = 86_400_000L
         val sel = StringBuilder()
             .append("${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($types)")
-            .append(" AND ((${MediaStore.Images.ImageColumns.DATE_TAKEN} BETWEEN ? AND ?)")
-            .append(" OR ((${MediaStore.Images.ImageColumns.DATE_TAKEN} IS NULL OR ${MediaStore.Images.ImageColumns.DATE_TAKEN} = 0)")
-            .append(" AND ${MediaStore.MediaColumns.DATE_MODIFIED} BETWEEN ? AND ?))")
-        val args = mutableListOf(from.toString(), to.toString(), (from / 1000).toString(), (to / 1000).toString())
+            .append(" AND (($taken BETWEEN ? AND ?)")
+            .append(" OR (($taken IS NULL OR $taken = 0) AND $modified BETWEEN ? AND ?)")
+            .append(" OR ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?)")
+        val args = mutableListOf(
+            (from - pad).toString(), (to + pad).toString(),
+            ((from - pad) / 1000).toString(), ((to + pad) / 1000).toString(),
+            "%-WA%",
+        )
         if (Build.VERSION.SDK_INT >= 29) sel.append(" AND ${MediaStore.MediaColumns.IS_PENDING} = 0")
-        if (s.cameraOnly) {
-            sel.append(" AND ${MediaStore.MediaColumns.DATA} LIKE ?")
-            args += "%/DCIM/%"
-        }
         val cols = arrayOf(
             MediaStore.MediaColumns.DATA,
-            MediaStore.Images.ImageColumns.DATE_TAKEN,
-            MediaStore.MediaColumns.DATE_MODIFIED,
+            taken,
+            modified,
             MediaStore.MediaColumns.DATE_ADDED,
             MediaStore.MediaColumns.MIME_TYPE,
         )
@@ -204,13 +214,63 @@ object SeriesEngine {
                 while (c.moveToNext()) {
                     val path = c.getString(0) ?: continue
                     if (path.contains("/.") || path.contains("/Android/data/")) continue
+                    val name = path.substringAfterLast('/')
+                    val source = sourceOf(path, name)
+                    val wanted = when (source) {
+                        Source.CAMERA -> s.fromCamera
+                        Source.WHATSAPP -> s.fromWhatsApp
+                        Source.OTHER -> s.fromOther
+                    }
+                    if (!wanted) continue
+                    val t = captureTime(name, c.getLong(1), c.getLong(2) * 1000)
+                    if (t !in from..to) continue
                     if (!File(path).exists()) continue
-                    val taken = c.getLong(1).takeIf { it > 0 } ?: (c.getLong(2) * 1000)
-                    out += SeriesPhoto(path, path.substringAfterLast('/'), taken, c.getLong(3) * 1000, c.getString(4) ?: "image/*")
+                    out += SeriesPhoto(path, name, t, c.getLong(3) * 1000, c.getString(4) ?: "image/*")
                 }
             }
         }
         return out.sortedWith(compareBy({ it.taken }, { it.name }))
+    }
+
+    enum class Source { CAMERA, WHATSAPP, OTHER }
+
+    /** WhatsApp: IMG-20261015-WA0004.jpg, VID-20260719-WA0043.mp4 */
+    private val waName = Regex("""^(?:IMG|VID|PTT|AUD|STK|DOC)-(\d{4})(\d{2})(\d{2})-WA\d+""", RegexOption.IGNORE_CASE)
+    /** Kamera & Co.: IMG_20261015_142233.jpg, 20261015_142233.jpg, Screenshot_20261015-142233… */
+    private val stampName = Regex("""(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})(?!\d)""")
+
+    fun sourceOf(path: String, name: String): Source = when {
+        waName.containsMatchIn(name) || path.contains("/WhatsApp/", ignoreCase = true) -> Source.WHATSAPP
+        path.contains("/DCIM/") -> Source.CAMERA
+        else -> Source.OTHER
+    }
+
+    /**
+     * Aufnahmezeit eines Fotos:
+     *  - WhatsApp: Datum aus dem Namen (WhatsApp entfernt die Kameradaten). Uhrzeit vom Speichern,
+     *    wenn sie zum selben Tag passt, sonst 00:00.
+     *  - sonst Aufnahmedatum aus den Fotodaten, dann Datum+Uhrzeit aus dem Namen, zuletzt Änderungsdatum.
+     */
+    fun captureTime(name: String, takenMs: Long, modifiedMs: Long): Long {
+        val zone = ZoneId.systemDefault()
+        waName.find(name)?.let { m ->
+            val d = runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }.getOrNull()
+            if (d != null) {
+                val ref = (if (takenMs > 0) takenMs else modifiedMs).takeIf { it > 0 }
+                    ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime() }
+                val time = if (ref != null && ref.toLocalDate() == d) ref.toLocalTime() else java.time.LocalTime.MIDNIGHT
+                return d.atTime(time).atZone(zone).toInstant().toEpochMilli()
+            }
+        }
+        if (takenMs > 0) return takenMs
+        stampName.find(name)?.let { m ->
+            val g = m.groupValues
+            runCatching {
+                return LocalDateTime.of(g[1].toInt(), g[2].toInt(), g[3].toInt(), g[4].toInt(), g[5].toInt(), g[6].toInt())
+                    .atZone(zone).toInstant().toEpochMilli()
+            }
+        }
+        return modifiedMs
     }
 
     /**

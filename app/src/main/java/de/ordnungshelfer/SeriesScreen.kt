@@ -225,7 +225,9 @@ private fun SeriesEditor(
     var pattern by remember { mutableStateOf(initial.pattern) }
     var autoNew by remember { mutableStateOf(initial.autoNew) }
     var videos by remember { mutableStateOf(initial.videos) }
-    var cameraOnly by remember { mutableStateOf(initial.cameraOnly) }
+    var fromCamera by remember { mutableStateOf(initial.fromCamera) }
+    var fromWhatsApp by remember { mutableStateOf(initial.fromWhatsApp) }
+    var fromOther by remember { mutableStateOf(initial.fromOther) }
     var moveToFolder by remember { mutableStateOf(initial.moveToFolder) }
     var baseFolder by remember { mutableStateOf(initial.baseFolder) }
     var pickDates by remember { mutableStateOf(false) }
@@ -236,7 +238,7 @@ private fun SeriesEditor(
     fun current() = initial.copy(
         name = name.trim(), start = start, end = end, tags = normalizeTags(tagList + parseTags(tagInput)),
         rename = rename, pattern = pattern.ifBlank { PhotoSeries.DEFAULT_PATTERN },
-        autoNew = autoNew, videos = videos, cameraOnly = cameraOnly,
+        autoNew = autoNew, videos = videos, fromCamera = fromCamera, fromWhatsApp = fromWhatsApp, fromOther = fromOther,
         moveToFolder = moveToFolder, baseFolder = baseFolder,
     )
 
@@ -275,7 +277,7 @@ private fun SeriesEditor(
         }
     }
 
-    val valid = name.isNotBlank() && end >= start
+    val valid = name.isNotBlank() && end >= start && (fromCamera || fromWhatsApp || fromOther)
     val today = LocalDate.now().toEpochDay()
     val hasPast = start <= today
 
@@ -425,11 +427,14 @@ private fun SeriesEditor(
                     autoNew,
                 ) { autoNew = it }
                 SwitchRow("Videos einbeziehen", null, videos) { videos = it }
+                Text("Quellen", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SwitchRow("Kamera", "Eigene Fotos und Videos (DCIM)", fromCamera) { fromCamera = it }
                 SwitchRow(
-                    "Nur Kamera-Fotos",
-                    "Aus dem Kamera-Ordner (DCIM). Aus: auch Screenshots, WhatsApp-Bilder usw.",
-                    cameraOnly,
-                ) { cameraOnly = it }
+                    "WhatsApp",
+                    "Empfangene und gesendete Bilder/Videos – Datum aus dem Namen, z. B. IMG-20261015-WA0004",
+                    fromWhatsApp,
+                ) { fromWhatsApp = it }
+                SwitchRow("Andere", "Screenshots, Downloads, andere Apps", fromOther) { fromOther = it }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -503,7 +508,11 @@ private fun SeriesPreview(vm: MainViewModel, id: Long, onClose: () -> Unit) {
                     Icons.Filled.CheckCircle,
                     if (s.assigned.isEmpty()) "Keine Fotos im Zeitraum" else "Alles erledigt",
                     if (s.assigned.isEmpty()) "Im Zeitraum ${s.rangeLabel} wurden keine passenden Fotos gefunden" +
-                        (if (s.cameraOnly) " (nur Kamera-Ordner)." else ".")
+                        " (Quellen: " + listOfNotNull(
+                            if (s.fromCamera) "Kamera" else null,
+                            if (s.fromWhatsApp) "WhatsApp" else null,
+                            if (s.fromOther) "Andere" else null,
+                        ).joinToString(", ") + ").")
                     else "Alle ${s.assigned.size} Fotos der Serie sind bereits benannt und getaggt.",
                 )
             }
