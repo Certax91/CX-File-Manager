@@ -24,6 +24,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Fotoserien: Überwachung am ersten Urlaubstag starten -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -79,6 +85,7 @@
 
         <receiver android:name=".RenameReceiver" android:exported="false" />
         <receiver android:name=".ApplyRuleReceiver" android:exported="false" />
+        <receiver android:name=".SeriesAlarmReceiver" android:exported="false" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

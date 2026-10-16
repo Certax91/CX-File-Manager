@@ -142,6 +142,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         refreshNames()
         purgeExpiredTrash()
+        // Fotos wurden im Hintergrund bearbeitet → Tags, Favoriten und Serien neu lesen
+        SeriesEvents.onChanged = {
+            viewModelScope.launch(Dispatchers.Main) { reloadAfterSeries() }
+        }
+    }
+
+    override fun onCleared() {
+        SeriesEvents.onChanged = null
+        super.onCleared()
+    }
+
+    // ---------- Fotoserien ----------
+
+    var series by mutableStateOf(SeriesEngine.load(app))
+        private set
+
+    private fun reloadAfterSeries() {
+        series = SeriesEngine.load(ctx)
+        tags = store.loadTags()
+        favorites = store.loadFavorites().toSet()
+        index = null
+        library = null
+        fsVersion++
+    }
+
+    /** Serie anlegen oder ändern. Bereits bearbeitete Fotos bleiben erhalten. */
+    fun saveSeries(s: PhotoSeries) {
+        series = SeriesEngine.update(ctx) { list ->
+            if (list.any { it.id == s.id }) list.map { if (it.id == s.id) s.copy(assigned = it.assigned, created = it.created) else it }
+            else list + s
+        }
+        WatchService.ensure(ctx)
+    }
+
+    fun deleteSeries(id: Long) {
+        series = SeriesEngine.update(ctx) { list -> list.filterNot { it.id == id } }
+        WatchService.ensure(ctx)
+        message = "Fotoserie gelöscht – Namen und Tags der Fotos bleiben erhalten"
+    }
+
+    /** Vorschau der noch nicht bearbeiteten Fotos einer Serie (im Hintergrund). */
+    fun previewSeries(id: Long, onResult: (List<SeriesItem>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val s = SeriesEngine.load(ctx).firstOrNull { it.id == id }
+            val items = if (s == null) emptyList() else SeriesEngine.preview(ctx, s)
+            withContext(Dispatchers.Main) { onResult(items) }
+        }
+    }
+
+    fun applySeries(id: Long, items: List<SeriesItem>, onDone: () -> Unit = {}) = work("Benenne ${items.size} Fotos …") {
+        val changes = SeriesEngine.apply(ctx, id, items)
+        withContext(Dispatchers.Main) {
+            reloadAfterSeries()
+            val renamed = changes.count { it.oldPath != it.newPath }
+            val text = when {
+                changes.isEmpty() -> "Keine Fotos bearbeitet"
+                renamed > 0 -> "${changes.size} Fotos getaggt, $renamed umbenannt"
+                else -> "${changes.size} Fotos getaggt"
+            }
+            if (changes.isEmpty()) message = text
+            else showNotice(text, "Rückgängig" to { undoSeries(changes) })
+            onDone()
+        }
+    }
+
+    private fun undoSeries(changes: List<SeriesChange>) = work("Mache rückgängig …") {
+        val n = SeriesEngine.undo(ctx, changes)
+        withContext(Dispatchers.Main) {
+            reloadAfterSeries()
+            message = "$n Fotos zurückgesetzt"
+        }
     }
 
     /** Wird beim Zurückkehren in die App aufgerufen, z. B. nach dem Erteilen der Berechtigung. */
@@ -151,7 +222,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         resolvePendingDownloads()
         // Tags können außerhalb der App geändert worden sein (Umbenennen aus der Benachrichtigung)
         tags = store.loadTags()
-        if (watching && allFilesAccess && !WatchState.running) WatchService.start(ctx)
+        if (allFilesAccess && !WatchState.running) WatchService.ensure(ctx)
+        // Falls die Überwachung nicht lief: neue Urlaubsfotos jetzt nachziehen
+        series = SeriesEngine.load(ctx)
+        if (allFilesAccess && series.any { it.autoNew }) viewModelScope.launch(Dispatchers.IO) { SeriesEngine.catchUp(ctx) }
     }
 
     /** Neue Datei aus der Überwachung: umbenennen, ggf. verschieben, Tags vergeben – in einem Schritt. */
@@ -353,7 +427,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         index = null
         dupGroups = null
         refreshNames()
-        if (watching && allFilesAccess) WatchService.start(ctx) else WatchService.stop(ctx)
+        series = SeriesEngine.load(ctx)
+        WatchService.ensure(ctx)
     }
 
     /** Überwachung des Download-Ordners ein-/ausschalten. */
@@ -364,7 +439,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         watching = on
         store.saveWatch(on)
-        if (on) WatchService.start(ctx) else WatchService.stop(ctx)
+        WatchService.ensure(ctx)
     }
 
     /** Ordner, auf die die App gerade zugreifen kann (file://-Ordner nur mit „Zugriff auf alle Dateien“). */
@@ -1008,6 +1083,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             store.saveFavorites(favorites)
         }
         added.forEach { (uri, t) -> updated[uri] = normalizeTags(updated[uri].orEmpty() + t) }
+        // Fotoserien: umbenannte Fotos gelten weiter als bearbeitet (sonst würden sie erneut benannt)
+        val pathMap = renamed.entries.mapNotNull { (o, n) ->
+            val op = Uri.parse(o).path
+            val np = Uri.parse(n).path
+            if (op != null && np != null) op to np else null
+        }.toMap()
+        if (pathMap.isNotEmpty() && series.any { s -> s.assigned.keys.any { it in pathMap } }) {
+            series = SeriesEngine.update(ctx) { list -> list.map { s -> s.copy(assigned = s.assigned.mapKeys { (k, _) -> pathMap[k] ?: k }) } }
+        }
         tags = updated
         store.saveTags(tags)
     }

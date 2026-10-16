@@ -12,7 +12,10 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
+import android.database.ContentObserver
 import android.os.FileObserver
+import android.os.HandlerThread
+import android.provider.MediaStore
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -58,13 +61,20 @@ class WatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannels(this)
+        val watchDl = Store(this).loadWatch()
+        val watchPhotos = SeriesEngine.needsWatching(this)
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
+        val (title, text) = when {
+            watchDl && watchPhotos -> "Downloads und Fotos werden überwacht" to "Neue Downloads umbenennen, neue Fotos kommen in die Fotoserie."
+            watchPhotos -> "Fotoserie läuft" to "Neue Fotos bekommen automatisch Namen und Tags."
+            else -> "Download-Ordner wird überwacht" to "Neue Dateien kannst du direkt umbenennen."
+        }
         val n = NotificationCompat.Builder(this, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle("Download-Ordner wird überwacht")
-            .setContentText("Neue Dateien kannst du direkt umbenennen.")
+            .setContentTitle(title)
+            .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
             .setSilent(true)
@@ -74,11 +84,17 @@ class WatchService : Service() {
             this, ID_SERVICE, n,
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0,
         )
-        if (!Docs.hasAllFilesAccess(this)) {
+        if (!Docs.hasAllFilesAccess(this) || (!watchDl && !watchPhotos)) {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (observer == null) startObserving()
+        if (watchDl) {
+            if (observer == null) startObserving()
+        } else {
+            observer?.stopWatching()
+            observer = null
+        }
+        if (watchPhotos) startPhotoWatch() else stopPhotoWatch()
         WatchState.running = true
         return START_STICKY
     }
@@ -86,9 +102,57 @@ class WatchService : Service() {
     override fun onDestroy() {
         observer?.stopWatching()
         observer = null
+        stopPhotoWatch()
         handler.removeCallbacksAndMessages(null)
         WatchState.running = false
         super.onDestroy()
+    }
+
+    // ---------- Fotoserien: neue Fotos ----------
+
+    private var photoObserver: ContentObserver? = null
+    private val worker by lazy { HandlerThread("fotoserie").also { it.start() } }
+    private val workHandler by lazy { Handler(worker.looper) }
+    private val catchUpRun = Runnable { runCatchUp() }
+    private val hourly = object : Runnable {
+        override fun run() {
+            workHandler.post(catchUpRun)
+            handler.postDelayed(this, 60 * 60_000L)
+        }
+    }
+
+    private fun startPhotoWatch() {
+        if (photoObserver != null) {
+            workHandler.post(catchUpRun)
+            return
+        }
+        val obs = object : ContentObserver(workHandler) {
+            override fun onChange(selfChange: Boolean) {
+                // Kamera schreibt das Foto in mehreren Schritten – kurz warten, dann gesammelt bearbeiten
+                workHandler.removeCallbacks(catchUpRun)
+                workHandler.postDelayed(catchUpRun, 4000)
+            }
+        }
+        listOf(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        ).forEach { runCatching { contentResolver.registerContentObserver(it, true, obs) } }
+        photoObserver = obs
+        workHandler.post(catchUpRun)
+        handler.postDelayed(hourly, 60 * 60_000L)
+    }
+
+    private fun stopPhotoWatch() {
+        photoObserver?.let { runCatching { contentResolver.unregisterContentObserver(it) } }
+        photoObserver = null
+        handler.removeCallbacks(hourly)
+    }
+
+    private fun runCatchUp() {
+        val done = runCatching { SeriesEngine.catchUp(this) }.getOrDefault(emptyMap())
+        done.forEach { (s, n) -> notifySeries(this, s, n) }
+        // Serie vorbei? Dann Überwachung anpassen bzw. beenden
+        if (!SeriesEngine.needsWatching(this)) handler.post { ensure(this) }
     }
 
     private fun startObserving() {
@@ -160,6 +224,7 @@ class WatchService : Service() {
     companion object {
         const val CHANNEL_SERVICE = "waechter"
         const val CHANNEL_NEW = "neue_dateien"
+        const val CHANNEL_SERIES = "fotoserien"
         const val ID_SERVICE = 1
         const val KEY_NAME = "neuer_name"
         const val EXTRA_PATH = "pfad"
@@ -180,12 +245,43 @@ class WatchService : Service() {
             ctx.stopService(Intent(ctx, WatchService::class.java))
         }
 
+        /** Startet/aktualisiert die Überwachung, wenn Downloads oder eine laufende Fotoserie sie brauchen – sonst beenden. */
+        fun ensure(ctx: Context) {
+            val need = Docs.hasAllFilesAccess(ctx) && (Store(ctx).loadWatch() || SeriesEngine.needsWatching(ctx))
+            if (need) start(ctx) else stop(ctx)
+            SeriesAlarm.schedule(ctx)
+        }
+
+        /** Sammel-Meldung „Mallorca: 3 neue Fotos benannt“ (eine je Serie, wird aktualisiert). */
+        fun notifySeries(ctx: Context, s: PhotoSeries, count: Int) {
+            if (!canNotify(ctx)) return
+            val total = SeriesEngine.load(ctx).firstOrNull { it.id == s.id }?.assigned?.size ?: count
+            val open = PendingIntent.getActivity(
+                ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
+            )
+            val what = if (s.rename) "benannt und getaggt" else "getaggt"
+            val n = NotificationCompat.Builder(ctx, CHANNEL_SERIES)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle("Fotoserie „${s.name}“")
+                .setContentText("$count neue${if (count == 1) "s Foto" else " Fotos"} $what · insgesamt $total")
+                .setContentIntent(open)
+                .setSilent(true)
+                .setAutoCancel(true)
+                .build()
+            runCatching { NotificationManagerCompat.from(ctx).notify(5000 + (s.id % 10000).toInt(), n) }
+        }
+
         fun createChannels(ctx: Context) {
             val nm = ctx.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SERVICE, "Überwachung aktiv", NotificationManager.IMPORTANCE_MIN).apply {
                     description = "Dauerhafte Anzeige, solange der Download-Ordner überwacht wird"
                     setShowBadge(false)
+                }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SERIES, "Fotoserien", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Meldet, wenn neue Fotos automatisch benannt und getaggt wurden"
                 }
             )
             nm.createNotificationChannel(
@@ -370,8 +466,35 @@ class ApplyRuleReceiver : BroadcastReceiver() {
 /** Startet die Überwachung nach einem Neustart des Handys wieder, falls eingeschaltet. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED && Store(ctx).loadWatch() && Docs.hasAllFilesAccess(ctx)) {
-            WatchService.start(ctx)
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) WatchService.ensure(ctx)
+    }
+}
+
+/** Weckt die Überwachung am ersten Tag einer geplanten Fotoserie (ungefähr um Mitternacht). */
+object SeriesAlarm {
+    fun schedule(ctx: Context) {
+        val am = ctx.getSystemService(android.app.AlarmManager::class.java) ?: return
+        val pi = PendingIntent.getBroadcast(
+            ctx, 77, Intent(ctx, SeriesAlarmReceiver::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val today = java.time.LocalDate.now().toEpochDay()
+        val next = SeriesEngine.load(ctx).filter { it.autoNew && it.start > today }.minOfOrNull { it.start }
+        if (next == null) {
+            am.cancel(pi)
+            return
         }
+        val at = java.time.LocalDate.ofEpochDay(next).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() + 60_000
+        // Exakter Wecker darf die Überwachung auch aus dem Hintergrund starten
+        val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        runCatching {
+            if (exact) am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi)
+            else am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi)
+        }
+    }
+}
+
+class SeriesAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        WatchService.ensure(ctx)
     }
 }
