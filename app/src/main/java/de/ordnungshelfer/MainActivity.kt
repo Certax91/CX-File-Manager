@@ -292,16 +292,18 @@ fun ToolsScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
         ScrollableTabRow(selectedTabIndex = sub, edgePadding = 8.dp, containerColor = MaterialTheme.colorScheme.background) {
             Tab(selected = sub == 0, onClick = { sub = 0 }, text = { Text("Sortieren") }, icon = { Icon(Icons.Filled.CleaningServices, null) })
             Tab(selected = sub == 1, onClick = { sub = 1 }, text = { Text("Fotoserien") }, icon = { Icon(Icons.Filled.PhotoLibrary, null) })
-            Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Duplikate") }, icon = { Icon(Icons.Filled.ContentCopy, null) })
-            Tab(selected = sub == 3, onClick = { sub = 3 }, text = { Text("Speicher") }, icon = { Icon(Icons.Filled.PieChart, null) })
-            Tab(selected = sub == 4, onClick = { sub = 4 }, text = { Text("Papierkorb (${vm.trash.size})") }, icon = { Icon(Icons.Filled.Delete, null) })
+            Tab(selected = sub == 2, onClick = { sub = 2 }, text = { Text("Kopieren") }, icon = { Icon(Icons.Filled.AddPhotoAlternate, null) })
+            Tab(selected = sub == 3, onClick = { sub = 3 }, text = { Text("Duplikate") }, icon = { Icon(Icons.Filled.ContentCopy, null) })
+            Tab(selected = sub == 4, onClick = { sub = 4 }, text = { Text("Speicher") }, icon = { Icon(Icons.Filled.PieChart, null) })
+            Tab(selected = sub == 5, onClick = { sub = 5 }, text = { Text("Papierkorb (${vm.trash.size})") }, icon = { Icon(Icons.Filled.Delete, null) })
         }
         Box(Modifier.weight(1f)) {
             when (sub) {
                 0 -> SortScreen(vm, onGoToFolders = onGoToSettings)
                 1 -> SeriesScreen(vm, onGoToSettings = onGoToSettings)
-                2 -> DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
-                3 -> StorageScreen(vm, onGoToSettings = onGoToSettings)
+                2 -> PhotoCopyScreen(vm, initial = emptyList(), onClose = null)
+                3 -> DuplicatesScreen(vm, onGoToFolders = onGoToSettings)
+                4 -> StorageScreen(vm, onGoToSettings = onGoToSettings)
                 else -> TrashScreen(vm, onBack = null)
             }
         }

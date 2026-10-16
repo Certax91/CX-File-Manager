@@ -33,6 +33,10 @@ data class PhotoSeries(
     val fromCamera: Boolean = true,
     val fromWhatsApp: Boolean = true,
     val fromOther: Boolean = false,
+    /** WhatsApp-Ordner (absolute Pfade, mit Unterordnern). Leer = automatisch am Namen erkennen */
+    val waFolders: List<String> = SeriesEngine.defaultWhatsAppFolders(),
+    /** Ordner für „Andere“ (mit Unterordnern). Leer = alle übrigen Ordner */
+    val otherFolders: List<String> = emptyList(),
     /** angelegt (ms) – automatisch werden nur Fotos bearbeitet, die danach hinzukamen */
     val created: Long = System.currentTimeMillis(),
     /** bereits bearbeitete Dateien: Pfad → laufende Nummer */
@@ -135,6 +139,9 @@ object SeriesEngine {
                     fromWhatsApp = o.optBoolean("fromWhatsApp", true),
                     // ältere Serien: „nur Kamera“ aus = alle Quellen
                     fromOther = o.optBoolean("fromOther", !o.optBoolean("cameraOnly", true)),
+                    waFolders = o.optJSONArray("waFolders")?.let { f -> List(f.length()) { f.getString(it) } }
+                        ?: SeriesEngine.defaultWhatsAppFolders(),
+                    otherFolders = o.optJSONArray("otherFolders")?.let { f -> List(f.length()) { f.getString(it) } } ?: emptyList(),
                     created = o.optLong("created", 0L),
                     assigned = asg?.keys()?.asSequence()?.associateWith { asg.getInt(it) } ?: emptyMap(),
                     moveToFolder = o.optBoolean("move", true),
@@ -157,6 +164,7 @@ object SeriesEngine {
                     .put("rename", s.rename).put("pattern", s.pattern)
                     .put("autoNew", s.autoNew).put("videos", s.videos)
                     .put("fromCamera", s.fromCamera).put("fromWhatsApp", s.fromWhatsApp).put("fromOther", s.fromOther)
+                    .put("waFolders", JSONArray(s.waFolders)).put("otherFolders", JSONArray(s.otherFolders))
                     .put("created", s.created)
                     .put("assigned", asg)
                     .put("move", s.moveToFolder)
@@ -215,13 +223,7 @@ object SeriesEngine {
                     val path = c.getString(0) ?: continue
                     if (path.contains("/.") || path.contains("/Android/data/")) continue
                     val name = path.substringAfterLast('/')
-                    val source = sourceOf(path, name)
-                    val wanted = when (source) {
-                        Source.CAMERA -> s.fromCamera
-                        Source.WHATSAPP -> s.fromWhatsApp
-                        Source.OTHER -> s.fromOther
-                    }
-                    if (!wanted) continue
+                    if (!matchesSource(s, path, name)) continue
                     val t = captureTime(name, c.getLong(1), c.getLong(2) * 1000)
                     if (t !in from..to) continue
                     if (!File(path).exists()) continue
@@ -238,6 +240,31 @@ object SeriesEngine {
     private val waName = Regex("""^(?:IMG|VID|PTT|AUD|STK|DOC)-(\d{4})(\d{2})(\d{2})-WA\d+""", RegexOption.IGNORE_CASE)
     /** Kamera & Co.: IMG_20261015_142233.jpg, 20261015_142233.jpg, Screenshot_20261015-142233… */
     private val stampName = Regex("""(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})(?!\d)""")
+
+    private fun under(path: String, folder: String) = path.startsWith(folder.trimEnd('/') + "/")
+
+    /** Gehört die Datei zu einer der gewählten Quellen der Serie? */
+    fun matchesSource(s: PhotoSeries, path: String, name: String): Boolean {
+        val auto = sourceOf(path, name)
+        val inWa = if (s.waFolders.isEmpty()) auto == Source.WHATSAPP else s.waFolders.any { under(path, it) }
+        val isCam = path.contains("/DCIM/") && !inWa
+        val inOther = if (s.otherFolders.isEmpty()) !isCam && !inWa && auto != Source.WHATSAPP else s.otherFolders.any { under(path, it) }
+        return (s.fromCamera && isCam) || (s.fromWhatsApp && inWa) || (s.fromOther && inOther)
+    }
+
+    /** Übliche WhatsApp-Ordner, die es auf dem Handy gibt (sonst die Standardordner neuerer Android-Versionen). */
+    fun defaultWhatsAppFolders(): List<String> {
+        val root = android.os.Environment.getExternalStorageDirectory().absolutePath
+        val candidates = listOf(
+            "$root/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
+            "$root/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video",
+            "$root/WhatsApp/Media/WhatsApp Images",
+            "$root/WhatsApp/Media/WhatsApp Video",
+            "$root/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Images",
+            "$root/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Video",
+        )
+        return candidates.filter { File(it).isDirectory }.ifEmpty { candidates.take(2) }
+    }
 
     fun sourceOf(path: String, name: String): Source = when {
         waName.containsMatchIn(name) || path.contains("/WhatsApp/", ignoreCase = true) -> Source.WHATSAPP

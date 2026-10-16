@@ -228,6 +228,14 @@ private fun SeriesEditor(
     var fromCamera by remember { mutableStateOf(initial.fromCamera) }
     var fromWhatsApp by remember { mutableStateOf(initial.fromWhatsApp) }
     var fromOther by remember { mutableStateOf(initial.fromOther) }
+    var waFolders by remember { mutableStateOf(initial.waFolders) }
+    var otherFolders by remember { mutableStateOf(initial.otherFolders) }
+    val addWa = rememberFolderChooser(vm, "WhatsApp-Ordner hinzufügen") { st ->
+        Uri.parse(st).path?.let { p -> if (p !in waFolders) waFolders = waFolders + p }
+    }
+    val addOther = rememberFolderChooser(vm, "Ordner hinzufügen") { st ->
+        Uri.parse(st).path?.let { p -> if (p !in otherFolders) otherFolders = otherFolders + p }
+    }
     var moveToFolder by remember { mutableStateOf(initial.moveToFolder) }
     var baseFolder by remember { mutableStateOf(initial.baseFolder) }
     var pickDates by remember { mutableStateOf(false) }
@@ -239,6 +247,7 @@ private fun SeriesEditor(
         name = name.trim(), start = start, end = end, tags = normalizeTags(tagList + parseTags(tagInput)),
         rename = rename, pattern = pattern.ifBlank { PhotoSeries.DEFAULT_PATTERN },
         autoNew = autoNew, videos = videos, fromCamera = fromCamera, fromWhatsApp = fromWhatsApp, fromOther = fromOther,
+        waFolders = waFolders, otherFolders = otherFolders,
         moveToFolder = moveToFolder, baseFolder = baseFolder,
     )
 
@@ -434,7 +443,25 @@ private fun SeriesEditor(
                     "Empfangene und gesendete Bilder/Videos – Datum aus dem Namen, z. B. IMG-20261015-WA0004",
                     fromWhatsApp,
                 ) { fromWhatsApp = it }
+                if (fromWhatsApp) {
+                    FolderListEditor(
+                        folders = waFolders,
+                        emptyText = "Automatisch: alle Dateien mit WhatsApp-Namen",
+                        onRemove = { waFolders = waFolders - it },
+                        onAdd = addWa,
+                        onReset = { waFolders = SeriesEngine.defaultWhatsAppFolders() },
+                    )
+                }
                 SwitchRow("Andere", "Screenshots, Downloads, andere Apps", fromOther) { fromOther = it }
+                if (fromOther) {
+                    FolderListEditor(
+                        folders = otherFolders,
+                        emptyText = "Alle übrigen Ordner – oder gezielt Ordner hinzufügen",
+                        onRemove = { otherFolders = otherFolders - it },
+                        onAdd = addOther,
+                        onReset = null,
+                    )
+                }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -446,6 +473,50 @@ private fun SeriesEditor(
                 } else {
                     Button(enabled = valid, onClick = { onSave(current(), false) }) { Text("Speichern") }
                 }
+            }
+        }
+    }
+}
+
+/** Liste ausgewählter Ordner mit Entfernen und „Ordner hinzufügen“. */
+@Composable
+private fun FolderListEditor(
+    folders: List<String>,
+    emptyText: String,
+    onRemove: (String) -> Unit,
+    onAdd: () -> Unit,
+    onReset: (() -> Unit)?,
+) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 4.dp)) {
+            if (folders.isEmpty()) {
+                Text(
+                    emptyText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+            folders.forEach { f ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Folder, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(File(f).name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            Docs.prettyPath(Uri.fromFile(File(f))).removePrefix("Interner Speicher/"),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = { onRemove(f) }) { Icon(Icons.Filled.Close, "Entfernen", Modifier.size(20.dp)) }
+                }
+            }
+            Row {
+                TextButton(onClick = onAdd) {
+                    Icon(Icons.Filled.CreateNewFolder, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Ordner hinzufügen")
+                }
+                if (onReset != null) TextButton(onClick = onReset) { Text("Standard") }
             }
         }
     }

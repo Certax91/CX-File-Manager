@@ -207,6 +207,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Fotos kopieren, benennen und taggen (Funktion „Kopieren“). */
+    fun copyPhotos(plans: List<CopyPlan>, dir: File, newTags: List<String>, onDone: (Boolean) -> Unit = {}) =
+        work("Kopiere ${plans.size} Fotos …") {
+            val files = PhotoCopy.copy(ctx, plans, dir)
+            withContext(Dispatchers.Main) {
+                val t = normalizeTags(newTags)
+                if (t.isNotEmpty() && files.isNotEmpty()) {
+                    val updated = tags.toMutableMap()
+                    files.forEach { f ->
+                        val k = Uri.fromFile(f).toString()
+                        updated[k] = normalizeTags(updated[k].orEmpty() + t)
+                    }
+                    tags = updated
+                    store.saveTags(tags)
+                }
+                index = null
+                library = null
+                if (files.isEmpty()) {
+                    message = "Kopieren nicht möglich"
+                } else {
+                    val where = Docs.prettyPath(Uri.fromFile(dir)).removePrefix("Interner Speicher/")
+                    val missing = plans.size - files.size
+                    showNotice(
+                        "${files.size} Fotos kopiert nach $where" + if (missing > 0) " ($missing nicht möglich)" else "",
+                        "Anzeigen" to { reveal(files.first().absolutePath) },
+                        "Rückgängig" to { undoCopy(files) },
+                    )
+                }
+                onDone(files.isNotEmpty())
+            }
+        }
+
+    private fun undoCopy(files: List<File>) = work("Mache rückgängig …") {
+        PhotoCopy.remove(ctx, files)
+        withContext(Dispatchers.Main) {
+            val keys = files.map { Uri.fromFile(it).toString() }.toSet()
+            tags = tags - keys
+            store.saveTags(tags)
+            index = null
+            library = null
+            message = "Kopien entfernt"
+        }
+    }
+
     private fun undoSeries(changes: List<SeriesChange>) = work("Mache rückgängig …") {
         val n = SeriesEngine.undo(ctx, changes)
         withContext(Dispatchers.Main) {

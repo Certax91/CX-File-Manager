@@ -84,6 +84,13 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
     val chooseMove = rememberFolderChooser(vm, "Verschieben nach") { dest -> vm.transferMany(selection, dest, copy = false, onDone = done) }
     val chooseCopy = rememberFolderChooser(vm, "Kopieren nach") { dest -> vm.transferMany(selection, dest, copy = true, onDone = done) }
 
+    // „Kopieren & benennen“ für die ausgewählten Dateien
+    var copyRename by remember { mutableStateOf<List<Uri>?>(null) }
+    copyRename?.let { list ->
+        PhotoCopyScreen(vm, initial = list, onClose = { copyRename = null; done() })
+        return
+    }
+
     BackHandler(enabled = selection.isNotEmpty() || searching || !atRoot) {
         when {
             selection.isNotEmpty() -> selection = emptySet()
@@ -231,6 +238,11 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                         DropdownMenuItem(
                             text = { Text("Kopieren nach …") }, leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
                             onClick = { selMenu = false; chooseCopy() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Kopieren & benennen") }, leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
+                            enabled = selFiles.isNotEmpty(),
+                            onClick = { selMenu = false; copyRename = selFiles },
                         )
                         DropdownMenuItem(
                             text = { Text("Umbenennen") }, leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, null) },
