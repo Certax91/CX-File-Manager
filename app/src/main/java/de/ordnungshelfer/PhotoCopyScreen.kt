@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +32,7 @@ import java.io.File
  * Fotos kopieren, nach Muster benennen und taggen.
  * [initial]: bereits gewählte Dateien (z. B. aus dem Explorer). [onClose]: null = eigene Seite unter „Funktionen“.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)?) {
     val ctx = LocalContext.current
@@ -48,6 +49,9 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
     var base by remember { mutableStateOf(PhotoCopy.lastBase(ctx)) }
     var subfolder by remember { mutableStateOf(PhotoCopy.lastSubfolder(ctx)) }
     var showList by remember { mutableStateOf(true) }
+    var move by remember { mutableStateOf(PhotoCopy.lastMove(ctx)) }
+    var browsing by remember { mutableStateOf(false) }
+    var lastBrowse by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Ohne Zahl nimmt Android die höchste erlaubte Anzahl (eine zu hohe Zahl lässt die App abstürzen)
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { picked ->
@@ -84,12 +88,27 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
         else withContext(Dispatchers.IO) { PhotoCopy.plan(src, name.trim().ifEmpty { "Foto" }, pattern, dir) }
     }
     val ready = !sources.isNullOrEmpty() && dir != null && name.isNotBlank() && plans.isNotEmpty() && vm.busy == null
+    val fromGallery = uris.count { it.scheme != "file" }
+
+    if (browsing) {
+        MediaBrowser(
+            startPath = lastBrowse,
+            preselected = uris.filter { it.scheme == "file" }.mapNotNull { it.path }.toSet(),
+            onCancel = { browsing = false },
+            onDone = { files, at ->
+                lastBrowse = at
+                uris = uris.filter { it.scheme != "file" } + files.map { Uri.fromFile(it) }
+                browsing = false
+            },
+        )
+        return
+    }
 
     Column(Modifier.fillMaxSize()) {
         if (onClose != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
-                Text("Kopieren & benennen", style = MaterialTheme.typography.titleLarge)
+                Text("Kopieren / Verschieben & benennen", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         LazyColumn(
@@ -97,6 +116,34 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            item {
+                SectionCard("Aktion") {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = !move, onClick = { move = false },
+                            shape = SegmentedButtonDefaults.itemShape(0, 2),
+                            icon = { SegmentedButtonDefaults.Icon(!move) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(18.dp)) } },
+                        ) { Text("Kopieren") }
+                        SegmentedButton(
+                            selected = move, onClick = { move = true },
+                            shape = SegmentedButtonDefaults.itemShape(1, 2),
+                            icon = { SegmentedButtonDefaults.Icon(move) { Icon(Icons.Filled.DriveFileMove, null, Modifier.size(18.dp)) } },
+                        ) { Text("Verschieben") }
+                    }
+                    Text(
+                        if (move) "Die Fotos werden umbenannt und in den Zielordner verschoben. Tags und Favoriten wandern mit."
+                        else "Die Kopien bekommen den neuen Namen und die Tags – die Originale bleiben unverändert.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (move && fromGallery > 0) {
+                        Text(
+                            "$fromGallery ${if (fromGallery == 1) "Foto stammt" else "Fotos stammen"} aus der Galerie-Auswahl und " +
+                                "${if (fromGallery == 1) "wird" else "werden"} nur kopiert. Zum Verschieben über die Ordneransicht auswählen.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
             item {
                 SectionCard("Fotos") {
                     val count = sources?.size
@@ -112,23 +159,24 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
                                 },
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            Text(
-                                "Die Originale bleiben unverändert.",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                         if (uris.isNotEmpty()) IconButton(onClick = { uris = emptyList() }) { Icon(Icons.Filled.Clear, "Auswahl leeren") }
                     }
                     FilledTonalButton(
-                        onClick = openPicker,
+                        onClick = { if (vm.allFilesAccess) browsing = true else openPicker() },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.AddPhotoAlternate, null)
+                        Icon(Icons.Filled.FolderOpen, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (uris.isEmpty()) "Fotos auswählen" else "Weitere Fotos hinzufügen")
+                        Text(if (uris.isEmpty()) "Fotos auswählen" else "Auswahl ändern / ergänzen")
+                    }
+                    TextButton(onClick = openPicker, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.PhotoLibrary, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Aus der Galerie-Auswahl (Alben)")
                     }
                     Text(
-                        "Tipp: Im Explorer (Suche) mehrere Dateien lange antippen und im Menü „Kopieren & benennen“ wählen.",
+                        "Tipp: Auch im Explorer (Suche) mehrere Dateien lange antippen und im Menü „Kopieren / Verschieben & benennen“ wählen.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -261,7 +309,8 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
                     onClick = {
                         val target = dir ?: return@Button
                         PhotoCopy.saveLast(ctx, base, pattern, subfolder)
-                        vm.copyPhotos(plans, target, normalizeTags(tagList + parseTags(tagInput))) { ok ->
+                        PhotoCopy.saveMove(ctx, move)
+                        vm.transferPhotos(plans, target, normalizeTags(tagList + parseTags(tagInput)), move) { ok ->
                             if (ok) {
                                 if (onClose != null) onClose() else uris = emptyList()
                             }
@@ -269,9 +318,10 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.ContentCopy, null)
+                    Icon(if (move) Icons.Filled.DriveFileMove else Icons.Filled.ContentCopy, null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (plans.isEmpty()) "Kopieren" else "${plans.size} ${if (plans.size == 1) "Foto" else "Fotos"} kopieren")
+                    val verb = if (move) "verschieben" else "kopieren"
+                    Text(if (plans.isEmpty()) verb.replaceFirstChar { it.uppercase() } else "${plans.size} ${if (plans.size == 1) "Foto" else "Fotos"} $verb")
                 }
             }
         }

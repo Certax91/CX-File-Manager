@@ -12,8 +12,8 @@ android {
         applicationId = "de.ordnungshelfer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "2.9.1"
+        versionCode = 27
+        versionName = "3.0"
     }
 
     // Fester Schlüssel, damit neue Versionen über die alte installiert werden können

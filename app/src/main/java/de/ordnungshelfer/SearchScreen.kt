@@ -240,7 +240,7 @@ fun SearchScreen(vm: MainViewModel, onGoToSettings: () -> Unit) {
                             onClick = { selMenu = false; chooseCopy() },
                         )
                         DropdownMenuItem(
-                            text = { Text("Kopieren & benennen") }, leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
+                            text = { Text("Kopieren / Verschieben & benennen") }, leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null) },
                             enabled = selFiles.isNotEmpty(),
                             onClick = { selMenu = false; copyRename = selFiles },
                         )

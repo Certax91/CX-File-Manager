@@ -207,47 +207,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Fotos kopieren, benennen und taggen (Funktion „Kopieren“). */
-    fun copyPhotos(plans: List<CopyPlan>, dir: File, newTags: List<String>, onDone: (Boolean) -> Unit = {}) =
-        work("Kopiere ${plans.size} Fotos …") {
-            val files = PhotoCopy.copy(ctx, plans, dir)
+    /** Fotos kopieren oder verschieben, benennen und taggen (Funktion „Kopieren & Verschieben“). */
+    fun transferPhotos(plans: List<CopyPlan>, dir: File, newTags: List<String>, move: Boolean, onDone: (Boolean) -> Unit = {}) =
+        work(if (move) "Verschiebe ${plans.size} Fotos …" else "Kopiere ${plans.size} Fotos …") {
+            val done = PhotoCopy.transfer(ctx, plans, dir, move)
             withContext(Dispatchers.Main) {
                 val t = normalizeTags(newTags)
-                if (t.isNotEmpty() && files.isNotEmpty()) {
-                    val updated = tags.toMutableMap()
-                    files.forEach { f ->
-                        val k = Uri.fromFile(f).toString()
-                        updated[k] = normalizeTags(updated[k].orEmpty() + t)
-                    }
-                    tags = updated
-                    store.saveTags(tags)
-                }
+                // Tags/Favoriten wandern beim Verschieben mit; Kopien bekommen die Tags des Originals
+                val renamed = done.filter { it.moved }.associate { it.src.toString() to Uri.fromFile(it.dest).toString() }
+                val added = done.associate { d ->
+                    val k = Uri.fromFile(d.dest).toString()
+                    k to (if (d.moved) t else normalizeTags(tags[d.src.toString()].orEmpty() + t))
+                }.filterValues { it.isNotEmpty() }
+                remapTags(renamed, added)
                 index = null
                 library = null
-                if (files.isEmpty()) {
-                    message = "Kopieren nicht möglich"
+                if (done.isEmpty()) {
+                    message = if (move) "Verschieben nicht möglich" else "Kopieren nicht möglich"
                 } else {
                     val where = Docs.prettyPath(Uri.fromFile(dir)).removePrefix("Interner Speicher/")
-                    val missing = plans.size - files.size
+                    val moved = done.count { it.moved }
+                    val copied = done.size - moved
+                    val missing = plans.size - done.size
+                    val text = listOfNotNull(
+                        if (moved > 0) "$moved verschoben" else null,
+                        if (copied > 0) "$copied kopiert" else null,
+                    ).joinToString(", ") + " nach $where" + if (missing > 0) " ($missing nicht möglich)" else ""
                     showNotice(
-                        "${files.size} Fotos kopiert nach $where" + if (missing > 0) " ($missing nicht möglich)" else "",
-                        "Anzeigen" to { reveal(files.first().absolutePath) },
-                        "Rückgängig" to { undoCopy(files) },
+                        text,
+                        "Anzeigen" to { reveal(done.first().dest.absolutePath) },
+                        "Rückgängig" to { undoTransfer(done) },
                     )
                 }
-                onDone(files.isNotEmpty())
+                onDone(done.isNotEmpty())
             }
         }
 
-    private fun undoCopy(files: List<File>) = work("Mache rückgängig …") {
-        PhotoCopy.remove(ctx, files)
+    private fun undoTransfer(done: List<PhotoCopy.Done>) = work("Mache rückgängig …") {
+        val n = PhotoCopy.undo(ctx, done)
         withContext(Dispatchers.Main) {
-            val keys = files.map { Uri.fromFile(it).toString() }.toSet()
-            tags = tags - keys
-            store.saveTags(tags)
+            val back = done.filter { it.moved }.associate { Uri.fromFile(it.dest).toString() to it.src.toString() }
+            remapTags(back, emptyMap())
+            val copies = done.filter { !it.moved }.map { Uri.fromFile(it.dest).toString() }.toSet()
+            if (copies.isNotEmpty()) {
+                tags = tags - copies
+                store.saveTags(tags)
+            }
             index = null
             library = null
-            message = "Kopien entfernt"
+            message = "$n Fotos zurückgesetzt"
         }
     }
 

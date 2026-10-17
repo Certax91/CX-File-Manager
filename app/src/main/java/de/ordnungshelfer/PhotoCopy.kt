@@ -125,17 +125,33 @@ object PhotoCopy {
         }
     }
 
-    /** Kopieren. Liefert die angelegten Dateien. Das Aufnahmedatum wird als Änderungsdatum übernommen. */
-    fun copy(ctx: Context, plans: List<CopyPlan>, dir: File): List<File> {
+    /** Ergebnis je Foto: Quelle → neue Datei; [moved] = Original wurde verschoben (sonst Kopie). */
+    data class Done(val src: Uri, val dest: File, val moved: Boolean)
+
+    /**
+     * Kopieren oder verschieben. Verschieben geht nur bei echten Dateien (aus der Ordneransicht);
+     * Fotos aus der Galerie-Auswahl werden immer kopiert. Das Aufnahmedatum wird als Dateidatum übernommen.
+     */
+    fun transfer(ctx: Context, plans: List<CopyPlan>, dir: File, move: Boolean): List<Done> {
         if (!dir.exists()) {
             WatchState.ignore(dir.absolutePath)
             dir.mkdirs()
         }
-        val out = ArrayList<File>()
+        val out = ArrayList<Done>()
+        val scan = ArrayList<String>()
         for (p in plans) {
             val dest = File(dir, p.newName)
             if (dest.exists()) continue
             WatchState.ignore(dest.absolutePath)
+            val srcFile = if (p.src.uri.scheme == "file") p.src.uri.path?.let { File(it) } else null
+            if (move && srcFile != null && srcFile.isFile) {
+                if (moveFile(srcFile, dest)) {
+                    out += Done(p.src.uri, dest, true)
+                    scan += srcFile.absolutePath
+                    scan += dest.absolutePath
+                }
+                continue
+            }
             val ok = runCatching {
                 ctx.contentResolver.openInputStream(p.src.uri)?.use { input ->
                     dest.outputStream().use { input.copyTo(it) }
@@ -143,19 +159,42 @@ object PhotoCopy {
             }.getOrDefault(false)
             if (ok) {
                 dest.setLastModified(p.src.taken)
-                out += dest
+                out += Done(p.src.uri, dest, false)
+                scan += dest.absolutePath
             } else {
                 dest.delete()
             }
         }
-        if (out.isNotEmpty()) runCatching { MediaScannerConnection.scanFile(ctx, out.map { it.absolutePath }.toTypedArray(), null, null) }
+        if (scan.isNotEmpty()) runCatching { MediaScannerConnection.scanFile(ctx, scan.toTypedArray(), null, null) }
         return out
     }
 
-    /** Kopien wieder entfernen (Rückgängig). */
-    fun remove(ctx: Context, files: List<File>) {
-        files.forEach { it.delete() }
-        runCatching { MediaScannerConnection.scanFile(ctx, files.map { it.absolutePath }.toTypedArray(), null, null) }
-        files.firstOrNull()?.parentFile?.let { d -> if (d.list()?.isEmpty() == true) d.delete() }
+    private fun moveFile(src: File, dest: File): Boolean {
+        if (dest.exists()) return false
+        dest.parentFile?.mkdirs()
+        if (src.renameTo(dest)) return true
+        return runCatching {
+            src.copyTo(dest)
+            if (dest.length() == src.length()) src.delete() else { dest.delete(); false }
+        }.getOrDefault(false)
     }
+
+    /** Rückgängig: Kopien löschen, verschobene Fotos an ihren alten Platz zurück. */
+    fun undo(ctx: Context, done: List<Done>): Int {
+        val scan = ArrayList<String>()
+        var ok = 0
+        for (d in done) {
+            if (d.moved) {
+                val back = File(d.src.path ?: continue)
+                if (!back.exists() && moveFile(d.dest, back)) { ok++; scan += back.absolutePath }
+            } else if (d.dest.delete()) ok++
+            scan += d.dest.absolutePath
+        }
+        runCatching { MediaScannerConnection.scanFile(ctx, scan.toTypedArray(), null, null) }
+        done.map { it.dest.parentFile }.distinct().forEach { d -> if (d?.list()?.isEmpty() == true) d.delete() }
+        return ok
+    }
+
+    fun lastMove(ctx: Context): Boolean = prefs(ctx).getBoolean("copyMove", false)
+    fun saveMove(ctx: Context, move: Boolean) { prefs(ctx).edit().putBoolean("copyMove", move).apply() }
 }
