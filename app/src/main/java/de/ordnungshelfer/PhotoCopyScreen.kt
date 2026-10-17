@@ -49,8 +49,24 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
     var subfolder by remember { mutableStateOf(PhotoCopy.lastSubfolder(ctx)) }
     var showList by remember { mutableStateOf(true) }
 
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(200)) { picked ->
+    // Ohne Zahl nimmt Android die höchste erlaubte Anzahl (eine zu hohe Zahl lässt die App abstürzen)
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { picked ->
         if (picked.isNotEmpty()) uris = (uris + picked).distinct()
+    }
+    // Ausweichweg, falls die Fotoauswahl auf dem Gerät nicht startet: Android-Dateiauswahl
+    val pickDocs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
+        if (picked.isNotEmpty()) uris = (uris + picked).distinct()
+    }
+    val openPicker: () -> Unit = {
+        try {
+            pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        } catch (e: Exception) {
+            try {
+                pickDocs.launch(arrayOf("image/*", "video/*"))
+            } catch (e2: Exception) {
+                vm.message = "Fotoauswahl konnte nicht geöffnet werden"
+            }
+        }
     }
     val chooseBase = rememberFolderChooser(vm, "Zielordner für die Kopien") { st -> Uri.parse(st).path?.let { base = it } }
 
@@ -104,7 +120,7 @@ fun PhotoCopyScreen(vm: MainViewModel, initial: List<Uri>, onClose: (() -> Unit)
                         if (uris.isNotEmpty()) IconButton(onClick = { uris = emptyList() }) { Icon(Icons.Filled.Clear, "Auswahl leeren") }
                     }
                     FilledTonalButton(
-                        onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                        onClick = openPicker,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Filled.AddPhotoAlternate, null)
